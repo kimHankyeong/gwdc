@@ -1,0 +1,21 @@
+{
+  "name": "@franchise/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "test:solidity": "hardhat test --coverage false",
+    "deploy:local": "hardhat run scripts/deploy.ts --network hardhatMainnet"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox-mocha-ethers": "^3.0.0",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.10.0",
+    "hardhat": "^3.0.12",
+    "mocha": "^11.7.4",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.2"
+  }
+}

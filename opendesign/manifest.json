@@ -1,0 +1,15 @@
+{
+  "generated": "2026-09-28T11:02:54.1455703Z",
+  "sections": [
+    {
+      "id": "mockups",
+      "label": "Mockups",
+      "groups": []
+    },
+    {
+      "id": "design-systems",
+      "label": "Design Systems",
+      "groups": [{"id":"franchise-procurement","label":"Franchise Procurement","path":"design-systems/franchise-procurement"}]
+    }
+  ]
+}
