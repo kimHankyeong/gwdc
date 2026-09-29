@@ -87,6 +87,9 @@ export class Workflow {
      requireThat(!Object.keys(event.payload).some(k=>!["query","maxTotal","quantity","requiredName"].includes(k)),"INVALID_ANSWER");
      // Editing the request voids the original auto-purchase consent.
      await c.query("UPDATE agent_runs SET input=$2,input_version=input_version+1,question=NULL,constraint_approval=NULL,auto_purchase=false WHERE id=$1",[id,input]);
+     // Results and evaluations belong to the exact input version that produced them.
+     await c.query("DELETE FROM candidates WHERE run_id=$1",[id]);
+     await c.query("DELETE FROM evaluations WHERE run_id=$1",[id]);
     }
     await c.query("UPDATE agent_runs SET state='READY',error_code=NULL,version=version+1 WHERE id=$1",[id]);
    }

@@ -70,6 +70,7 @@ export class SearchService {
  private active=0;
  private cursors=new Map<string,{query:string;context:string;offset:number;expires:number}>();
  constructor(private endpoint:string|undefined,private allowed:Set<string>,private internalSecret?:string) {}
+ approvedHosts(){return [...this.allowed];}
  configured(){return !!this.endpoint;}
  async search(query:string){return (await this.searchPage(query,'direct')).candidates;}
  async searchPage(query:string,context:string,cursor?:string) {
@@ -84,17 +85,26 @@ export class SearchService {
    requireThat(!url.username&&!url.password&&!url.search&&!url.hash&&(this.internalSecret?url.protocol==='https:'&&url.pathname==='/api/compute':url.protocol==='http:'&&url.hostname==='127.0.0.1'&&url.pathname==='/'),"SEARCH_ENDPOINT_INVALID");
    if(!this.internalSecret)url.pathname='/search/text';
    let response:Response;
-   try{response=await fetch(url,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',...(this.internalSecret?{Authorization:'Bearer '+this.internalSecret}:{})},body:JSON.stringify({...(this.internalSecret?{operation:'search'}:{}),query,page:offset+1}),signal:AbortSignal.timeout(20000)});}
+   try{response=await fetch(url,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',...(this.internalSecret?{Authorization:'Bearer '+this.internalSecret}:{})},body:JSON.stringify({...(this.internalSecret?{operation:'search'}:{}),query,page:offset+1,approvedHosts:[...this.allowed]}),signal:AbortSignal.timeout(20000)});}
    catch{throw new AppError('SEARCH_UNAVAILABLE',503);}
    requireThat(response.ok,response.status===429?'SEARCH_BUSY':'SEARCH_UNAVAILABLE',503);
    let result:any;try{result=JSON.parse(await boundedText(response,2*1024*1024,'SEARCH_RESPONSE_TOO_LARGE'));}catch(e){if(e instanceof AppError)throw e;throw new AppError('SEARCH_INVALID_RESPONSE');}
-   requireThat(result?.provider==='ddgs'&&result.backend==='duckduckgo'&&Array.isArray(result.results)&&result.results.length<=10,"SEARCH_INVALID_RESPONSE");
+   const ddgsResult=result?.provider==='ddgs'&&result.backend==='multi';
+   const tavilyResult=result?.provider==='tavily'&&result.backend==='tavily';
+   requireThat((ddgsResult||tavilyResult)&&typeof result.partial==='boolean'&&
+     Array.isArray(result.failedEngines)&&result.failedEngines.length<=(ddgsResult?6:0)&&result.failedEngines.every((engine:string)=>['duckduckgo','brave','google','mojeek','startpage','yahoo'].includes(engine))&&
+    Array.isArray(result.results)&&result.results.length<=10,"SEARCH_INVALID_RESPONSE");
    requireThat(result.results.every((v:any)=>v&&typeof v.href==='string'&&typeof v.title==='string'&&v.title.length>0&&v.href.length<4096),"SEARCH_INVALID_RESPONSE");
-   const candidates=[];
-   for(const item of result.results){
-    if(typeof item.href!=="string"||typeof item.title!=="string")continue;
-    let parsed:URL;try{parsed=new URL(item.href);}catch{continue;}
-    if(parsed.protocol!=='https:'||parsed.username||parsed.password||!this.allowed.has(parsed.hostname.toLowerCase()))continue;
+    const discovery=result.results.slice(0,8).flatMap((item:any)=>{
+     let parsed:URL;try{parsed=new URL(item.href);}catch{return [];}
+     if(parsed.protocol!=='https:'||parsed.username||parsed.password)return [];
+     return [{host:parsed.hostname.toLowerCase(),approvedSource:this.allowed.has(parsed.hostname.toLowerCase()),
+      title:item.title.slice(0,200),snippet:typeof item.body==='string'?item.body.replace(/\s+/g,' ').slice(0,320):''}];
+    });
+   const inspect=async(item:any)=>{
+    if(typeof item.href!=="string"||typeof item.title!=="string")return null;
+    let parsed:URL;try{parsed=new URL(item.href);}catch{return null;}
+    if(parsed.protocol!=='https:'||parsed.username||parsed.password||!this.allowed.has(parsed.hostname.toLowerCase()))return null;
     const c:any={id:randomUUID(),name:item.title.slice(0,300),url:item.href,sourceId:randomUUID(),
       fetchedAt:new Date().toISOString(),evidenceType:"SEARCH_SNIPPET",fields:null,sourceError:null};
     try { const src=await safeHttp(item.href,this.allowed);c.fields=parseProduct(src.text,src.url);
@@ -103,15 +113,18 @@ export class SearchService {
      if(c.fields)c.verifiedMerchantHost=new URL(src.url).hostname.toLowerCase();
      if(!c.fields)c.sourceError="UNSUPPORTED_SOURCE";
     }catch(e){c.sourceError=e instanceof AppError?e.code:"SOURCE_UNAVAILABLE";}
-    if(c.fields?.observedPrice!=null&&c.fields?.currency)candidates.push(c);
-   }
+    return c;
+   };
+   const candidates:any[]=[];
+   for(let i=0;i<result.results.length;i+=4)
+    candidates.push(...(await Promise.all(result.results.slice(i,i+4).map(inspect))).filter(Boolean));
    let nextCursor:string|null=null;
-   if(result.results.length===10&&offset<9){
+   if(result.backend==='multi'&&result.results.length===10&&offset<9){
     for(const [k,v] of this.cursors)if(v.expires<Date.now())this.cursors.delete(k);
     if(this.cursors.size>=1000)this.cursors.delete(this.cursors.keys().next().value!);
     nextCursor=randomUUID();this.cursors.set(nextCursor,{query,context,offset:offset+1,expires:Date.now()+300000});
    }
-   return {candidates,nextCursor};
+    return {candidates,nextCursor,discovery,partial:result.partial,failedEngines:result.failedEngines};
   }finally{this.active--;}
  }
 }

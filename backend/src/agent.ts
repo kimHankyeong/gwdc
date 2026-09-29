@@ -8,6 +8,7 @@ import { AppError,requireThat } from "./errors.js";
 import { digest } from "./policy.js";
 import { validateAuditPayload } from "./auditPayload.js";
 import { z } from "zod";
+import { ProductSearchAgent } from "./searchAgent.js";
 
 const planningStages=["READY","CONSTRAINTS_DRAFT","NEEDS_INPUT","ACTION_REQUIRED"];
 const stages:Record<string,string[]>={ask_clarification:planningStages,propose_purchase_constraints:planningStages,
@@ -18,7 +19,7 @@ const outputs:Record<string,z.ZodType>={
  propose_purchase_constraints:z.object({constraintVersion:z.number(),constraints:constraintsSchema}),
  search_products:z.object({candidates:z.array(z.object({id:z.string(),url:z.string(),name:z.string()}))}),
  simulate_policy:z.object({examples:z.array(z.object({id:z.string(),allowed:z.boolean(),total:z.string()}))}),
- evaluate_policy:z.object({evaluations:z.array(z.object({id:z.string(),allowed:z.boolean(),total:z.string()})),permittedOrder:z.array(z.string())}),
+ evaluate_policy:z.object({evaluations:z.array(z.object({id:z.string(),allowed:z.boolean(),total:z.string()})),permittedOrder:z.array(z.string()),unavailableCandidates:z.array(z.object({candidateId:z.string(),reasonCode:z.string()})).optional()}),
  prepare_purchase:z.object({intentId:z.string(),quote:z.object({total:z.string(),mode:z.literal("SIMULATION")}),quoteVersion:z.number(),generation:z.number()}),
  execute_purchase:z.object({intentId:z.string(),state:z.string()}),
  get_receipt:z.object({id:z.string(),mode:z.literal("SIMULATION")}),
@@ -26,7 +27,8 @@ const outputs:Record<string,z.ZodType>={
 
 export class Agent {
  private validators=new Map(toolDefinitions.map(t=>[t.function.name,new Ajv({strict:false}).compile(t.function.parameters)]));
- constructor(readonly flow:Workflow,readonly kiln:KilnClient) {}
+ private productSearch:ProductSearchAgent;
+ constructor(readonly flow:Workflow,readonly kiln:KilnClient) {this.productSearch=new ProductSearchAgent(flow,kiln);}
  async resume(owner:string,runId:string) {
   const lock=await this.flow.db.pool.connect();
   try {
@@ -39,25 +41,77 @@ export class Agent {
     for(let i=0;i<4;i++)if((await lock.query('SELECT pg_try_advisory_xact_lock(110011,$1) AS locked',[i])).rows[0].locked){slot=true;break;}
     requireThat(slot,'LLM_BUSY',429);
    }
-   const initial=await this.flow.run(owner,runId);requireThat(initial.active,"RUN_CLOSED");
+   let initial=await this.flow.run(owner,runId);requireThat(initial.active,"RUN_CLOSED");
    requireThat(['READY','CONSTRAINTS_DRAFT','ACTION_REQUIRED'].includes(initial.state),'INVALID_STAGE');
+    const hasFreshQuote=(run:any)=>run.candidates.some((row:any)=>{
+    const candidate=row.data??row, fields=candidate.fields??{}, fetchedAt=Date.parse(candidate.fetchedAt);
+    return candidate.evidenceType==="HTML_OBSERVATION"&&fields.observedPrice!=null&&fields.currency&&
+     fields.observedShipping!=null&&fields.shippingCurrency&&Number.isFinite(fetchedAt)&&Date.now()-fetchedAt<5*60*1000;
+   });
+    const searchEligible=(run:any)=>!!run.constraints&&(run.track==="HardInput"||!!run.constraint_approval);
+    const searchedVersions=new Set<string>();
+    const searchForCurrentRun=async(run:any)=>{
+     const searchKey=`${run.input_version}:${run.constraint_version}`;
+     if(!searchEligible(run)||hasFreshQuote(run)||searchedVersions.has(searchKey))return {run,performed:false,stop:false,found:null as any};
+     searchedVersions.add(searchKey);
+     try{
+     await this.flow.db.tx(async c=>{
+       const current=await this.flow.ownedRun(c,runId,owner);await this.flow.gate(c,current.scope_id);
+      const locked=await this.flow.ownedRun(c,runId,owner,true);
+       requireThat(locked.active&&locked.input_version===run.input_version&&locked.constraint_version===run.constraint_version,"STALE_INPUT");
+      await c.query("DELETE FROM candidates WHERE run_id=$1",[runId]);
+      await c.query("DELETE FROM evaluations WHERE run_id=$1",[runId]);
+     });
+      const found=await this.productSearch.search(owner,runId,run);
+      if(!found.candidates.length){
+        if(found.partialSearch&&!found.discoveryCount){
+        const code=found.searchErrorCode??"SEARCH_UNAVAILABLE";
+        await this.flow.db.pool.query("UPDATE agent_runs SET state='ACTION_REQUIRED',error_code=$2,question=NULL,version=version+1 WHERE id=$1 AND active AND input_version=$3 AND constraint_version=$4",[runId,code,run.input_version,run.constraint_version]);
+        return {run:await this.flow.run(owner,runId),performed:true,stop:true,found};
+       }
+       const question=found.rejectedCandidateCount
+        ?{questionKey:"search_identity_match",questions:["검색 결과에서 요청한 상품명이나 모델 번호와 일치하는 판매 페이지를 찾지 못했습니다. 색상·규격·세대 등 상품 조건을 더 구체적으로 입력해 주세요."]}
+        :found.discoveryCount
+       ?{questionKey:"search_approved_source",questions:["검색 결과는 있었지만 현재 허용된 판매처에서 확인 가능한 상품 페이지를 찾지 못했습니다. 상품명이나 모델명을 구체적으로 입력해 다시 검색해 주세요."]}
+       :{questionKey:"search_no_candidates",questions:["검색 결과에서 상품을 찾지 못했습니다. 상품명이나 모델명을 더 구체적으로 입력해 다시 검색해 주세요."]};
+       await this.flow.db.pool.query("UPDATE agent_runs SET question=$2,state='NEEDS_INPUT',error_code=NULL,version=version+1 WHERE id=$1 AND active AND input_version=$3 AND constraint_version=$4",[runId,question,run.input_version,run.constraint_version]);
+       return {run:await this.flow.run(owner,runId),performed:true,stop:true,found};
+     }
+      return {run:await this.flow.run(owner,runId),performed:true,stop:false,found};
+    }catch(e){
+     const code=e instanceof AppError?e.code:"SEARCH_AGENT_FAILED";
+     const latest=await this.flow.run(owner,runId);
+      if(!latest.active||latest.input_version!==run.input_version||latest.constraint_version!==run.constraint_version)return {run:latest,performed:true,stop:true,found:null as any};
+      if(code==="STALE_INPUT")return {run:latest,performed:true,stop:true,found:null as any};
+     if(/^(SEARCH_|SOURCE_|KILN_|LLM_)/.test(code)){
+        await this.flow.db.pool.query("UPDATE agent_runs SET state='ACTION_REQUIRED',error_code=$2,question=NULL,version=version+1 WHERE id=$1 AND active AND input_version=$3 AND constraint_version=$4",[runId,code,run.input_version,run.constraint_version]);
+        return {run:await this.flow.run(owner,runId),performed:true,stop:true,found:null as any};
+     }
+     throw e;
+     }
+    };
+    const initialSearch=await searchForCurrentRun(initial);initial=initialSearch.run;
+    if(initialSearch.stop)return initial;
    await this.flow.db.pool.query("UPDATE agent_runs SET error_code=NULL WHERE id=$1",[runId]);
    const messages:any[]=[{role:"user",content:JSON.stringify({track:initial.track,input:initial.input,autoPurchase:initial.auto_purchase,state:initial.state,
     constraints:initial.constraints,constraintVersion:initial.constraint_version,inputVersion:initial.input_version,
     candidates:initial.candidates,intents:initial.intents,receipts:initial.receipts,
-    constraintApproval:initial.constraint_approval,evaluations:initial.evaluations,question:initial.question})}];
+     constraintApproval:initial.constraint_approval,evaluations:initial.evaluations,question:initial.question,
+     searchStatus:initialSearch.found?{pages:initialSearch.found.pages,queryCount:initialSearch.found.queryCount,
+      rejectedCandidateCount:initialSearch.found.rejectedCandidateCount,
+      partial:initialSearch.found.partialSearch,errorCode:initialSearch.found.searchErrorCode}:null})}];
    const seen=new Map<string,string>();let retries=0;const deadline=Date.now()+90000;
    for(let round=0;round<12&&Date.now()<deadline;round++){
     const run=await this.flow.db.tx(async c=>{const r=await this.flow.ownedRun(c,runId,owner);await this.flow.gate(c,r.scope_id);requireThat(r.active,"RUN_CLOSED");return r;});
     const entry=await this.flow.cache.load(run.scope_id,run.policy_version,run.policy_digest);
-    const response=await this.kiln.generate(entry.text,messages);messages.push(response);
+    const response=await this.kiln.generate(entry.text,messages,toolDefinitions.filter(t=>t.function.name!=="search_products"));messages.push(response);
     const calls=response.tool_calls;
     if(!calls?.length){
      if(retries++<2){messages.push({role:"user",content:"Use the permitted tool for the unfinished step. Do not invent success."});continue;}
      await this.flow.db.pool.query("UPDATE agent_runs SET state='ACTION_REQUIRED',version=version+1 WHERE id=$1 AND active",[runId]);break;
     }
     requireThat(Array.isArray(calls)&&calls.length<=9,"INVALID_LLM_RESPONSE");
-    let pause=false;
+     let pause=false,continueAfterSearch=false;
     for(const call of calls){
      if(Date.now()>=deadline)pause=true;
      let result:any;
@@ -75,7 +129,21 @@ export class Agent {
      }
      messages.push({role:"tool",tool_call_id:call.id,content:JSON.stringify(result)});
      if(["NEEDS_INPUT","NEEDS_APPROVAL"].includes(result.status)||result.data?.state==="PROCESSING")pause=true;
+      if(call.function.name==="propose_purchase_constraints"&&!pause){
+       const latest=await this.flow.run(owner,runId);
+       if(latest.track==="HardInput"&&latest.constraints){
+        const searched=await searchForCurrentRun(latest);
+        if(searched.stop)pause=true;
+        else if(searched.performed){
+         messages.push({role:"user",content:JSON.stringify({searchStage:"complete",pages:searched.found?.pages??0,
+          queryCount:searched.found?.queryCount??0,partial:searched.found?.partialSearch??false,
+          errorCode:searched.found?.searchErrorCode??null,candidates:searched.run.candidates})});
+         pause=true;continueAfterSearch=true;
+        }
+       }
+      }
     }
+     if(continueAfterSearch){pause=false;continue;}
     if(pause)break;
     if(round===11)await this.flow.db.pool.query("UPDATE agent_runs SET state='ACTION_REQUIRED',version=version+1 WHERE id=$1 AND active",[runId]);
    }
@@ -123,7 +191,10 @@ export class Agent {
      args={questionKey:"purchase_details",questions:["구매할 내용과 예산·수량을 아래 입력란에서 확인해 주세요."]};
     // Missing source observations are not a policy merchant denial. Explain the actual next action.
     const found=(await c.query("SELECT data FROM candidates WHERE run_id=$1",[runId])).rows;
-    if(found.length&&!found.some(x=>x.data.fields?.observedPrice!=null&&x.data.fields?.observedShipping!=null))
+    if(found.length&&!found.some(x=>x.data.evidenceType==="HTML_OBSERVATION"&&x.data.contentHash&&
+     x.data.fields?.observedPrice!=null&&x.data.fields?.currency===p.currency&&
+     x.data.fields?.observedShipping!=null&&x.data.fields?.shippingCurrency===p.currency&&
+     Date.now()-new Date(x.data.fetchedAt).getTime()<5*60*1000))
      args={questionKey:"source_price",questions:["현재 검색 결과는 가격 또는 배송비가 확인되지 않아 구매 계산을 할 수 없습니다. 다른 상품명으로 다시 검색해 주세요."]};
     await c.query("UPDATE agent_runs SET question=$2,state='NEEDS_INPUT',version=version+1 WHERE id=$1",[runId,args]);
     return {status:"NEEDS_INPUT",data:args};
@@ -150,9 +221,17 @@ export class Agent {
     return {status:"NEEDS_APPROVAL",data:{examples:results}};
    }
    if(name==="evaluate_policy"){
-    const results=[];
+    const results=[],unavailableCandidates=[];
     for(const candidateId of args.candidateIds){
-     const quote=await this.flow.quote(c,r,candidateId,r.constraints.quantity);
+     let quote:any;
+     try{quote=await this.flow.quote(c,r,candidateId,r.constraints.quantity);}
+     catch(e){
+      const code=e instanceof AppError?e.code:"";
+      if(["PRICE_EVIDENCE_MISSING","PRICE_EVIDENCE_STALE","PRICE_CURRENCY_MISMATCH","SHIPPING_EVIDENCE_MISSING"].includes(code)){
+       unavailableCandidates.push({candidateId,reasonCode:code});continue;
+      }
+      throw e;
+     }
      const result=await this.flow.evaluate(c,r,quote),id=randomUUID();
      await c.query("INSERT INTO evaluations VALUES($1,$2,$3,$4,'EVALUATION',$5,$6)",[id,runId,r.constraint_version,r.policy_digest,{...result,candidateId},result.inputDigest]);
      results.push({id,candidateId,rating:quote.rating,...result});
@@ -163,7 +242,7 @@ export class Agent {
      requireThat(r.constraints.query===r.input.query&&r.constraints.quantity===r.input.quantity&&r.constraints.maxTotal===r.input.maxTotal&&r.constraints.requiredName===r.input.requiredName,"EXACT_INPUT_MISMATCH");
      await c.query("UPDATE agent_runs SET constraint_approval=$2,state='READY',version=version+1 WHERE id=$1",[runId,{version:r.constraint_version,policyDigest:r.policy_digest,evidenceIds:results.filter(x=>x.allowed).map(x=>x.id),source:"AUTO"}]);
     }
-    return {status:"OK",data:{evaluations:results,permittedOrder:rank.candidateIds}};
+    return {status:"OK",data:{evaluations:results,permittedOrder:rank.candidateIds,unavailableCandidates}};
    }
    if(name==="prepare_purchase"){
     requireThat(await this.flow.auditReady(c,owner),"AUDIT_NOT_READY",503);

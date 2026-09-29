@@ -2,7 +2,7 @@
 from http.server import BaseHTTPRequestHandler
 import os, json, hmac, threading
 from python_worker.main import dispatch
-from ddgs import DDGS
+from search_service.providers import SearchProviderError, normalize_approved_hosts, search_results
 slots = threading.BoundedSemaphore(2)
 class handler(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
@@ -27,9 +27,12 @@ class handler(BaseHTTPRequestHandler):
                 query=data.get('query','');page=data.get('page',1)
                 if not isinstance(query,str) or not 0<len(query)<=600 or len(query.split())>75 or type(page)!=int or not 1<=page<=10:
                     return self.respond(400,{'error':'INVALID_INPUT'})
-                rows=DDGS(timeout=12,verify=True).text(query,backend='duckduckgo',max_results=10,page=page)
-                result={'provider':'ddgs','backend':'duckduckgo','results':[{'href':str(r.get('href','')),'title':str(r.get('title','')),'body':str(r.get('body',''))[:2000]} for r in rows[:10]]}
+                try:approved_hosts=normalize_approved_hosts(data.get('approvedHosts',[]))
+                except SearchProviderError:return self.respond(400,{'error':'INVALID_INPUT'})
+                result=search_results(query,page,approved_hosts)
             else:return self.respond(400,{'error':'INVALID_OPERATION'})
             return self.respond(200,result)
+        except SearchProviderError as exc:
+            return self.respond(429 if exc.code=='SEARCH_BUSY' else 503,{'error':exc.code})
         except Exception:return self.respond(503,{'error':'COMPUTE_UNAVAILABLE'})
         finally:slots.release()

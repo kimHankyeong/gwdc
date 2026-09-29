@@ -12,7 +12,7 @@
 
 ## 코드 위치
 
-- `backend/src/`: 인증, 정책 버전/캐시, 9개 Tool, Kiln, DDGS 검색/안전한 HTML 수집, PostgreSQL 작업/장부, 주문/감사 Worker
+- `backend/src/`: 인증, 정책 버전/캐시, LangChain 제품 검색 에이전트, Kiln 거래 Tool, DDGS 검색/안전한 HTML 수집, PostgreSQL 작업/장부, 주문/감사 Worker
 - `python_worker/`: 고정 JSON 평가기. 금액 계산·Hard 판정·허용 후보 정렬. 생성 코드 실행 금지
 - `frontend/`: 모의 주문 표시, 요청/답변, 조건·최종 승인, 재승인, 별도 정책 편집, 영수증
 - `blockchain/`: **같은 저장소**의 `codex/blockchain-network-boilerplate` cd84fa7 원본. `src/runAudit.mjs`는 명시적 입력을 받는 신규 어댑터
@@ -63,7 +63,7 @@ Vite는 `/api/policy-edit-sessions`를 4175로 연결합니다. 운영 reverse p
 
 ## 실행 흐름
 
-1. 요청 시작은 intent/승인 없이 가능합니다. Kiln이 9개 등록 Tool 중 필요한 작업을 선택합니다.
+1. 요청 시작은 intent/승인 없이 가능합니다. 먼저 Kiln/Qwen이 부족한 입력을 묻고 구매 조건을 제안합니다. `HardInput`은 고정 조건이 생긴 뒤, `Plan`은 조건 승인을 받은 뒤 LangChain 검색 에이전트가 원문 질의, 허용 판매처 도메인 질의, 최대 2개 변형 질의, 총 4페이지까지 탐색합니다. 이후 Kiln/Qwen 거래 에이전트가 후보 평가 도구를 선택합니다.
 2. Plan은 조건 초안 → Python 예시 1–2개 → 사용자 조건 승인. HardInput은 명시 입력 일치와 Python 평가 → 사용자 조건 승인.
 3. 실제 검색 결과를 선택합니다. 현재 정적 HTML Product JSON-LD를 지원하며 누락·모호한 옵션·JS-only·로그인 자료는 UNKNOWN/UNSUPPORTED_SOURCE입니다. 리뷰 진위를 보장하지 않습니다.
 4. 판매 페이지에서 관측한 상품 가격과 배송비가 모두 확인된 후보만 모의 주문 계산에 사용합니다. 판매자의 확정 견적은 아닙니다. 수동 모드는 품목·금액·정책을 확인한 뒤 승인합니다.
@@ -75,7 +75,7 @@ Kiln 요청마다 전체 정책을 고정 prefix로 포함합니다. 앱의 READ
 
 ## 실제 검색
 
-검색은 DDGS의 DuckDuckGo backend를 사용하며 Brave 키는 사용하지 않습니다. 기본 판매 페이지 호스트는 `www.11st.co.kr,www.ikea.com`이며 `SOURCE_ALLOWED_HOSTS`로 교체할 수 있습니다. 일반 웹 결과는 후보에서 제외합니다. 가격은 판매 페이지 JSON-LD 관측값만 사용하며, 11번가의 명시적 무료배송 표기 또는 JSON-LD 배송비가 없으면 모의 주문 계산을 차단합니다. 가격은 5분 이내의 관측값이어야 합니다. 안전 수집은 HTTPS/443, DNS 주소 검사, 연결 IP 고정, redirect 재검증, 10초/2MiB 한도를 적용합니다. 내장 가짜 상품 목록은 없습니다.
+검색은 Kiln의 기존 Qwen 모델이 LangChain 도구를 선택해 질의를 최대 3개, 총 4페이지까지 탐색합니다. 도구 응답은 매 검색 후 누적 후보 수와 신선한 가격·배송 근거가 갖춰진 후보 수를 갱신합니다. 이 수치만으로 상품 관련성을 판정하지 않으며, 모델이 상품명·모델·제외 브랜드를 함께 확인해 검색을 이어갑니다. 저장되는 후보는 결정론적 서버 검사로 모델 번호 등 식별 anchor와 상품명 토큰이 요청과 맞는지 다시 거릅니다. 시장 경로가 있는 승인 호스트는 `site:www.ikea.com/kr/ko`처럼 도메인 안의 경로까지 좁혀 지역 통화 결과를 우선할 수 있습니다. 기본 검색은 키가 필요 없는 DDGS DuckDuckGo·Brave·Google·Mojeek·Startpage·Yahoo backend 병렬 조회이며, 결과는 질의어와 제목·요약의 일치도 순으로 정렬합니다. 선택적으로 `TAVILY_API_KEY`를 설정하면 Tavily Search API를 사용하며, allowlist 호스트를 우선하고 `site:` 변형은 해당 판매처로 제한합니다. 이 선택 provider는 쿼리마다 검색 API 사용량을 소비할 수 있습니다. Tavily는 무료 계정 월 1,000 API credits와 사용량 기반 유료 플랜을 안내합니다([공식 요금](https://www.tavily.com/pricing)). Kiln/Qwen 모델 설정은 그대로 유지됩니다. 로컬 `/search/text`와 Vercel `/api/compute`는 같은 검색 구현을 사용합니다. 기본 판매 페이지 호스트는 `www.11st.co.kr,www.ikea.com`이며 `SOURCE_ALLOWED_HOSTS`로 교체할 수 있습니다. allowlist 밖 결과의 짧은 제목·요약은 검색어 조정에만 쓰며, untrusted 입력으로 취급합니다. 가격은 판매 페이지 JSON-LD 관측값만 사용하며, 11번가의 명시적 무료배송 표기 또는 JSON-LD 배송비가 없으면 모의 주문 계산을 차단합니다. 가격은 5분 이내의 관측값이어야 합니다. 안전 수집은 HTTPS/443, DNS 주소 검사, 연결 IP 고정, redirect 재검증, 10초/2MiB 한도를 적용합니다. 내장 가짜 상품 목록은 없습니다.
 
 ## 실제 Sepolia 감사
 
@@ -127,7 +127,7 @@ PostgreSQL 통합 검사는 npm 패키지의 별도 테스트 클러스터를 lo
 온라인 실행은 Supabase PostgreSQL/Auth와 Vercel Node.js/Python Functions로 연결했습니다. 개발용 접근 토큰 입력은 온라인에서 이메일 로그인으로 교체했습니다. 현재 상태·보안·남은 범위·재배포 방법은 [Supabase QA](docs/QA-SUPABASE-2026-09-29.md)를 참조하세요. SMTP/공개 회원가입 및 Sepolia 감사 Worker는 아직 별도 설정이 필요합니다.
 
 - [deedy5/ddgs](https://github.com/deedy5/ddgs), MIT, 버전 9.16.0. Qwen 모델 전용 API가 아니라 서버가 실행하는 `search_products` 도구의 검색 제공자입니다.
-- 현재 Kiln 모델은 qwen3-32b. Brave API와 Brave 엔진은 사용하지 않습니다. DuckDuckGo 엔진을 명시적으로 고정합니다.
+- 기본 Kiln 모델은 `qwen3-32b` 예시 설정입니다. 검색 제공자는 DDGS에서 지원하는 DuckDuckGo, Brave, Google, Mojeek, Startpage, Yahoo를 병렬 조회해 중복 제거 후 최대 10건을 합칩니다. 한쪽 엔진 장애가 있으면 부분 결과로 표시하고 빠르게 재조회합니다.
 - SearXNG도 검토했으나 현재 Docker 엔진이 동작하지 않아 Python에서 실행 가능한 DDGS를 선택했습니다.
 
 ```powershell
@@ -136,9 +136,9 @@ python -m venv .venv-search
 .\.venv-search\Scripts\python.exe -m uvicorn search_service.app:app --host 127.0.0.1 --port 4479 --no-access-log
 ```
 
-`.env`에 `SEARCH_API_URL=http://127.0.0.1:4479`를 지정한 뒤 backend를 시작합니다. 검색 API 키는 필요하지 않습니다. `SOURCE_ALLOWED_HOSTS`를 비우면 판매 페이지 후보도 비워집니다. 검색 순위·가격은 판매처의 현재 재고와 최종 결제액을 보증하지 않습니다.
+`.env`에 `SEARCH_API_URL=http://127.0.0.1:4479`를 지정한 뒤 backend를 시작합니다. 기본 DDGS 검색은 검색 API 키 없이 사용할 수 있으며, Tavily 경로에는 `TAVILY_API_KEY`가 필요합니다. `SOURCE_ALLOWED_HOSTS`를 비우면 판매 페이지 후보도 비워집니다. 검색 순위·가격은 판매처의 현재 재고와 최종 결제액을 보증하지 않습니다.
 
-검색 API는 loopback 전용, origin 차단, 본문/결과 크기 제한, 동시 검색 2개, 60초 메모리 캐시(최대 256개), 동일 검색 병합을 적용합니다. `/extract`나 외부 호출자 지정 backend는 제공하지 않습니다. 서버가 결과를 검증한 후 기존 SSRF 보호 수집기로만 원문을 가져옵니다.
+검색 API는 loopback 전용, origin 차단, 본문/결과 크기 제한, 동시 검색 질의 2개(엔진 조회 최대 6개), 일반 결과 60초·빈 결과 및 부분 결과 5초 메모리 캐시(최대 256개), 동일 검색 병합을 적용합니다. 정상적인 무결과 응답은 빈 결과로 돌려보내 LangChain 에이전트가 질의를 바꿔 검색할 수 있게 합니다. `/extract`나 외부 호출자 지정 backend는 제공하지 않습니다. 서버가 결과를 검증한 후 기존 SSRF 보호 수집기로만 원문을 가져옵니다.
 
 이 메타검색 라이브러리는 상위 검색 서비스 상태/제한에 영향을 받으며 200명 동시 검색 처리나 운영 SLA를 보장하지 않습니다. 제한/장애는 429/503으로 차단합니다. 검색 실패를 생성 결과로 채우지 않습니다. 저장소는 교육용 사용을 명시합니다.
 

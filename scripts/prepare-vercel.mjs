@@ -8,6 +8,9 @@ for(const item of ['src','public','index.html','tsconfig.json','package.json'])a
 await cp(resolve(root,'api'),resolve(output,'api'),{recursive:true});
 await cp(resolve(root,'backend/dist'),resolve(output,'backend/dist'),{recursive:true});
 await cp(resolve(root,'python_worker/main.py'),resolve(output,'python_worker/main.py'));
+await mkdir(resolve(output,'search_service'),{recursive:true});
+await cp(resolve(root,'search_service/__init__.py'),resolve(output,'search_service/__init__.py'));
+await cp(resolve(root,'search_service/providers.py'),resolve(output,'search_service/providers.py'));
 await cp(resolve(root,'deploy/certs'),resolve(output,'deploy/certs'),{recursive:true});
 await mkdir(resolve(output,'blockchain/scripts'),{recursive:true});
 await cp(resolve(root,'blockchain/scripts/audit-safety.mjs'),resolve(output,'blockchain/scripts/audit-safety.mjs'));
@@ -21,7 +24,7 @@ const backend=JSON.parse(await readFile(resolve(root,'backend/package.json'),'ut
 pkg.dependencies={...pkg.dependencies,...backend.dependencies};
 pkg.engines={node:'24.x'};
 await writeFile(resolve(output,'package.json'),JSON.stringify(pkg,null,2)+'\n');
-await writeFile(resolve(output,'requirements.txt'),'ddgs==9.16.0\n');
+await writeFile(resolve(output,'requirements.txt'),'ddgs==9.16.0\npython-dotenv==1.2.3\n');
 const config=JSON.parse(await readFile(resolve(root,'deploy/vercel.json'),'utf8'));
 config.installCommand='npm install --ignore-scripts';
 config.buildCommand='npm run build';
