@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
-    "target": "ES2023", "module": "NodeNext", "moduleResolution": "NodeNext",
-    "strict": true, "skipLibCheck": true, "types": ["node", "mocha"]
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"]
   },
-  "include": ["hardhat.config.ts", "test/**/*.ts"]
+  "include": ["hardhat.config.ts"]
 }

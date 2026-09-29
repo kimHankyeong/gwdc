@@ -4,8 +4,11 @@ cache/
 coverage/
 types/
 state/
+evidence/
+test/
+scripts/*.test.mjs
+SECURITY-REVIEW.md
 .env
 .env.sepolia
 *.tsbuildinfo
 *.tmp
-evidence/*.bak
