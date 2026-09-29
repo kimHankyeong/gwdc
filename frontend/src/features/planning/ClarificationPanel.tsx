@@ -3,6 +3,7 @@ import { Button } from "../../../design-system/components/Button";
 import { Card } from "../../../design-system/components/Card";
 import { Input } from "../../../design-system/components/Input";
 import { Badge } from "../../../design-system/components/Badge";
+import { Spinner } from "../../../design-system/components/Spinner";
 
 /**
  * ClarificationPanel — "서칭 과정에서 사용자의 지시가 모호한 경우 … 억지로 추론하거나
@@ -37,6 +38,7 @@ export function ClarificationPanel({
       />
       <div className="flex justify-end">
         <Button disabled={busy || !answer.trim()} onClick={() => onAnswer(answer)}>
+          {busy && <Spinner />}
           {busy ? "확인하는 중…" : "답변 보내기"}
         </Button>
       </div>

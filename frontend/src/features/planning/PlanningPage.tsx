@@ -24,6 +24,18 @@ import { PolicyViewer } from "../policy/PolicyViewer";
 import { SimulationPanel } from "../policy/SimulationPanel";
 import { FinalApproval } from "../purchase/FinalApproval";
 
+/** 화면 상단 배지에 쓰는 사람이 읽는 상태 이름과 톤. 기술적인 상태 값은 그대로 노출하지 않는다. */
+const STATUS_LABEL: Record<RunStatus, { label: string; tone: "neutral" | "info" | "success" | "warning" | "danger" }> = {
+  DRAFT: { label: "작성 중", tone: "neutral" },
+  NEEDS_INPUT: { label: "확인 필요", tone: "warning" },
+  CONSTRAINTS_DRAFT: { label: "정책 확인", tone: "info" },
+  POLICY_NOT_READY: { label: "정책 준비 중", tone: "warning" },
+  READY: { label: "최종 확인", tone: "info" },
+  EXECUTING: { label: "접수 중", tone: "info" },
+  COMPLETED: { label: "완료", tone: "success" },
+  REJECTED: { label: "반려됨", tone: "danger" },
+};
+
 /**
  * PlanningPage — Notion PSEUDO 2의 오케스트레이터.
  * "render server state: NEEDS_INPUT / CONSTRAINTS_DRAFT / POLICY_NOT_READY / READY / REJECTED"
@@ -93,12 +105,22 @@ export function PlanningPage() {
       const result = await simulatePolicy(resolvedItem, pendingForm.quantity, pendingForm.softPreference);
       setCandidates(result);
       if (result.every((c) => !c.eligible)) {
-        setRejectReasons(result.map((c) => c.reasonCode));
+        setRejectReasons(result.map((c) => `${c.supplier.name}: ${c.reasonCode}`));
         setStatus("REJECTED");
       }
     } finally {
       setBusy(false);
     }
+  };
+
+  const backToDraft = () => {
+    setCandidates(null);
+    setStatus("DRAFT");
+  };
+
+  const backToConstraints = () => {
+    setPrepared(null);
+    setStatus("CONSTRAINTS_DRAFT");
   };
 
   const handleAccept = async (candidate: Candidate) => {
@@ -125,71 +147,98 @@ export function PlanningPage() {
     }
   };
 
+  const statusMeta = STATUS_LABEL[status];
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-12">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-600 text-xs font-bold text-white">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex items-center gap-2 whitespace-nowrap">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-600 text-xs font-bold text-white">
             GD
           </span>
           <span className="text-sm font-semibold text-neutral-800">가맹 구매 에이전트</span>
         </div>
-        <Badge tone="neutral">{status}</Badge>
+        <div className="flex items-center gap-3 whitespace-nowrap">
+          {status === "CONSTRAINTS_DRAFT" && (
+            <button
+              type="button"
+              onClick={backToDraft}
+              className="text-xs font-medium text-neutral-500 hover:text-neutral-800"
+            >
+              ← 조건 수정
+            </button>
+          )}
+          {status === "READY" && (
+            <button
+              type="button"
+              onClick={backToConstraints}
+              className="text-xs font-medium text-neutral-500 hover:text-neutral-800"
+            >
+              ← 다른 후보
+            </button>
+          )}
+          <Badge tone={statusMeta.tone}>{statusMeta.label}</Badge>
+        </div>
       </header>
 
-      {status === "DRAFT" && (
-        <PlanningForm hardPolicy={hardPolicy} busy={busy} onSubmit={handleSubmit} />
-      )}
+      <div key={status} className="screen-enter flex flex-col gap-6">
+        {status === "DRAFT" && (
+          <PlanningForm hardPolicy={hardPolicy} busy={busy} initial={pendingForm} onSubmit={handleSubmit} />
+        )}
 
-      {status === "NEEDS_INPUT" && (
-        <ClarificationPanel question={question} busy={busy} onAnswer={handleAnswer} />
-      )}
+        {status === "NEEDS_INPUT" && (
+          <ClarificationPanel question={question} busy={busy} onAnswer={handleAnswer} />
+        )}
 
-      {status === "CONSTRAINTS_DRAFT" && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <PolicyViewer policy={hardPolicy} />
-          <SimulationPanel
-            candidates={candidates}
-            busy={busy}
-            onSimulate={handleSimulate}
-            onAccept={handleAccept}
-          />
-        </div>
-      )}
-
-      {(status === "READY" || status === "EXECUTING" || status === "COMPLETED") && prepared && (
-        <FinalApproval prepared={prepared} receipt={receipt} busy={busy} onConfirm={handleConfirm} />
-      )}
-
-      {status === "REJECTED" && (
-        <Card state="rejected" className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <Badge tone="danger">반려</Badge>
-            <span className="text-xs text-neutral-500">REJECTED</span>
+        {status === "CONSTRAINTS_DRAFT" && (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <PolicyViewer policy={hardPolicy} />
+            <SimulationPanel
+              candidates={candidates}
+              busy={busy}
+              onSimulate={handleSimulate}
+              onAccept={handleAccept}
+            />
           </div>
-          <p className="text-body-lg text-neutral-800">
-            Hard Constraint를 만족하는 판매처가 없어 구매를 진행할 수 없습니다.
-          </p>
-          <ul className="list-disc pl-5 text-sm text-neutral-600">
-            {rejectReasons.map((reason, i) => (
-              <li key={i}>{reason}</li>
-            ))}
-          </ul>
+        )}
+
+        {(status === "READY" || status === "EXECUTING" || status === "COMPLETED") && prepared && (
+          <FinalApproval prepared={prepared} receipt={receipt} busy={busy} onConfirm={handleConfirm} />
+        )}
+
+        {status === "REJECTED" && (
+          <Card state="rejected" className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <Badge tone="danger">반려</Badge>
+              <span className="text-xs text-neutral-500">조건을 만족하는 판매처가 없습니다</span>
+            </div>
+            <p className="text-body-lg text-neutral-800">
+              수량을 줄이거나 희망 단가·최소 평점 조건을 조정한 뒤 다시 시도해 보세요.
+            </p>
+            <ul className="list-disc pl-5 text-sm text-neutral-600">
+              {rejectReasons.map((reason, i) => (
+                <li key={i}>{reason}</li>
+              ))}
+            </ul>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={backToDraft}>
+                조건 조정하기
+              </Button>
+              <Button variant="secondary" onClick={restart}>
+                처음부터 다시 시작
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {status === "COMPLETED" && (
           <div className="flex justify-end">
-            <Button variant="secondary" onClick={restart}>
-              다시 시작
+            <Button variant="ghost" onClick={restart}>
+              새 구매 요청
             </Button>
           </div>
-        </Card>
-      )}
-
-      {status === "COMPLETED" && (
-        <div className="flex justify-end">
-          <Button variant="ghost" onClick={restart}>
-            새 구매 요청
-          </Button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

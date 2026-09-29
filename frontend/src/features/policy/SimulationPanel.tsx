@@ -1,6 +1,7 @@
 import { Button } from "../../../design-system/components/Button";
 import { Card } from "../../../design-system/components/Card";
 import { Badge } from "../../../design-system/components/Badge";
+import { Spinner } from "../../../design-system/components/Spinner";
 import type { Candidate } from "../../lib/types";
 
 /**
@@ -24,6 +25,7 @@ export function SimulationPanel({
       <div className="flex items-center justify-between">
         <h2 className="text-h3 font-semibold text-neutral-900">시뮬레이션</h2>
         <Button variant="secondary" size="sm" disabled={busy} onClick={onSimulate}>
+          {busy && <Spinner />}
           {busy ? "계산하는 중…" : "시뮬레이션 실행"}
         </Button>
       </div>

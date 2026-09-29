@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button } from "../../../design-system/components/Button";
 import { Card } from "../../../design-system/components/Card";
 import { Badge } from "../../../design-system/components/Badge";
+import { Spinner } from "../../../design-system/components/Spinner";
 import { pollAuditStatus } from "../../lib/mockAgentApi";
 import type { AuditStatus, PreparedPurchase, Receipt } from "../../lib/types";
 
@@ -63,6 +64,7 @@ export function FinalApproval({
       {!receipt && (
         <div className="flex justify-end">
           <Button size="lg" disabled={busy} onClick={onConfirm}>
+            {busy && <Spinner />}
             {busy ? "접수하는 중…" : "구매 확정"}
           </Button>
         </div>
@@ -81,6 +83,7 @@ export function FinalApproval({
           <div className="flex items-center gap-2">
             <span className="text-xs text-neutral-500">감사(audit) 상태</span>
             <Badge tone={audit === "confirmed" ? "success" : "warning"}>
+              {audit !== "confirmed" && <Spinner className="text-warning-600" />}
               {audit === "confirmed" ? "온체인 확정" : audit === "pending" ? "확인 중" : "대기"}
             </Badge>
           </div>

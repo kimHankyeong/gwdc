@@ -10,3 +10,25 @@ body {
 * {
   box-sizing: border-box;
 }
+
+/* 상태 전환마다 화면이 뚝 끊기지 않도록 하는 최소한의 진입 애니메이션. */
+@keyframes screen-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.screen-enter {
+  animation: screen-enter 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen-enter {
+    animation: none;
+  }
+}

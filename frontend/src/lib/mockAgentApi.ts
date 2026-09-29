@@ -13,30 +13,46 @@ import type {
   Supplier,
 } from "./types";
 
+/**
+ * 강남 1호점은 식자재뿐 아니라 매장 운영에 쓰는 가구·가전·소품도 이 예산 안에서 구매한다.
+ * 그래서 Hard Constraint 규모를 식자재 단품 기준이 아니라 가구·가전 구매까지 감당하도록 잡았다.
+ */
 const HARD_POLICY: HardPolicy = {
   branchId: "branch-01",
   branchName: "강남 1호점",
-  budgetLimit: 300000,
-  remainingBudget: 280000,
-  maxSingleTransaction: 150000,
-  allowedSellers: ["새벽식자재", "한결푸드"],
+  budgetLimit: 3000000,
+  remainingBudget: 2600000,
+  maxSingleTransaction: 1200000,
+  allowedSellers: ["새벽마켓", "한결스토어"],
   policyValidUntil: "2026-10-31",
   allowedCurrency: "KRW",
-  minRemainingBalance: 50000,
+  minRemainingBalance: 300000,
   policyDigest: "pol_8f21ac93",
 };
 
+/**
+ * 카탈로그는 식자재로 한정하지 않는다. "가구·시계·침대"처럼 매장에 필요한 다른 범주도
+ * 포함해서 사용자가 쓸 만한 표현을 keywords에 넓게 등록해 둔다.
+ */
 const CATALOG: PurchaseItem[] = [
-  { id: "chicken", name: "닭다리살", unit: "kg", unitPrice: 8900 },
-  { id: "onion", name: "양파", unit: "kg", unitPrice: 1800 },
-  { id: "lettuce", name: "양상추", unit: "박스", unitPrice: 12000 },
-  { id: "rice", name: "쌀", unit: "포 20kg", unitPrice: 54000 },
-  { id: "oil", name: "식용유", unit: "말통", unitPrice: 38000 },
+  { id: "chicken", name: "닭다리살", keywords: ["닭다리살", "닭다리", "닭고기"], unit: "kg", unitPrice: 8900 },
+  { id: "onion", name: "양파", keywords: ["양파"], unit: "kg", unitPrice: 1800 },
+  { id: "lettuce", name: "양상추", keywords: ["양상추", "상추"], unit: "박스", unitPrice: 12000 },
+  { id: "rice", name: "쌀", keywords: ["쌀"], unit: "포 20kg", unitPrice: 54000 },
+  { id: "oil", name: "식용유", keywords: ["식용유"], unit: "말통", unitPrice: 38000 },
+  { id: "chair", name: "사무용 의자", keywords: ["사무용 의자", "의자"], unit: "개", unitPrice: 89000 },
+  { id: "desk", name: "책상", keywords: ["책상", "테이블"], unit: "개", unitPrice: 145000 },
+  { id: "sofa", name: "소파", keywords: ["소파"], unit: "개", unitPrice: 620000 },
+  { id: "bed", name: "침대", keywords: ["침대", "매트리스"], unit: "개", unitPrice: 780000 },
+  { id: "watch-wrist", name: "손목시계", keywords: ["손목시계", "시계"], unit: "개", unitPrice: 210000 },
+  { id: "watch-wall", name: "벽시계", keywords: ["벽시계"], unit: "개", unitPrice: 45000 },
+  { id: "fridge", name: "냉장고", keywords: ["냉장고"], unit: "대", unitPrice: 890000 },
+  { id: "washer", name: "세탁기", keywords: ["세탁기"], unit: "대", unitPrice: 650000 },
 ];
 
 const SUPPLIERS: Supplier[] = [
-  { id: "fresh-first", name: "새벽식자재", deliveryFee: 2000, rating: 4.6, express: true },
-  { id: "market-one", name: "한결푸드", deliveryFee: 4000, rating: 4.3, express: false },
+  { id: "fresh-first", name: "새벽마켓", deliveryFee: 2000, rating: 4.6, express: true, priceMultiplier: 1.04 },
+  { id: "market-one", name: "한결스토어", deliveryFee: 4000, rating: 4.3, express: false, priceMultiplier: 0.98 },
 ];
 
 const VAGUE_WORDS = ["아무거나", "적당히", "알아서", "대충"];
@@ -45,8 +61,19 @@ function delay<T>(value: T, ms = 450): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
 
+/**
+ * "양파 10kg"처럼 구체 품목명은 물론, "시계"처럼 범주만 말해도 keywords로 찾는다.
+ * 여러 품목이 걸리면(예: "시계" → 손목시계·벽시계) 가장 먼저 등록된 품목을 쓴다 —
+ * 실제 구현에서는 여기서 "어떤 시계인가요?"로 한 번 더 되물어야 한다.
+ */
 function findItem(intentText: string): PurchaseItem | null {
-  return CATALOG.find((item) => intentText.includes(item.name)) ?? null;
+  const text = intentText.trim();
+  if (!text) return null;
+  return (
+    CATALOG.find((item) => item.keywords.some((k) => text.includes(k))) ??
+    CATALOG.find((item) => item.keywords.some((k) => k.includes(text))) ??
+    null
+  );
 }
 
 export function getHardPolicy(): HardPolicy {
@@ -82,7 +109,7 @@ export async function answerClarification(answer: string): Promise<
   return startAgentRun({
     intentText: answer,
     quantity: 1,
-    softPreference: { pricePriority: 70, minRating: 4, deliverySpeed: "standard" },
+    softPreference: { targetUnitPrice: null, minRating: 4, deliverySpeed: "standard" },
   });
 }
 
@@ -93,10 +120,12 @@ export async function answerClarification(answer: string): Promise<
 export async function simulatePolicy(
   item: PurchaseItem,
   quantity: number,
-  soft: { pricePriority: number; minRating: number; deliverySpeed: "standard" | "express" },
+  soft: { targetUnitPrice: number | null; minRating: number; deliverySpeed: "standard" | "express" },
 ): Promise<Candidate[]> {
   const candidates = SUPPLIERS.map((supplier) => {
-    const amount = item.unitPrice * quantity + supplier.deliveryFee;
+    const unitPrice = Math.round(item.unitPrice * supplier.priceMultiplier);
+    const amount = unitPrice * quantity + supplier.deliveryFee;
+    const meetsTargetPrice = soft.targetUnitPrice == null || unitPrice <= soft.targetUnitPrice;
     const reasons: string[] = [];
     let eligible = true;
 
@@ -119,9 +148,11 @@ export async function simulatePolicy(
 
     if (eligible) {
       reasons.push(
-        soft.pricePriority >= 50
-          ? "가격 우선 조건 충족"
-          : "리뷰 평점·배송 조건 기준 선정",
+        soft.targetUnitPrice == null
+          ? "희망 단가 조건 없음 · 최저가순 정렬"
+          : meetsTargetPrice
+            ? `희망 단가(${soft.targetUnitPrice.toLocaleString()}원) 이내`
+            : `희망 단가(${soft.targetUnitPrice.toLocaleString()}원) 초과 · 우선순위 하향`,
       );
       if (soft.deliverySpeed === "express" && !supplier.express) {
         reasons.push("빠른 배송 미지원(우선순위 하향)");
@@ -136,16 +167,20 @@ export async function simulatePolicy(
       amount,
       eligible,
       reasonCode: reasons.join(" · "),
-    } satisfies Candidate;
+      meetsTargetPrice,
+    };
   });
 
   const ranked = [...candidates].sort((a, b) => {
     if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
-    if (soft.pricePriority >= 50) return a.amount - b.amount;
-    return b.supplier.rating - a.supplier.rating;
+    if (a.meetsTargetPrice !== b.meetsTargetPrice) return a.meetsTargetPrice ? -1 : 1;
+    return a.amount - b.amount;
   });
 
-  return delay(ranked.slice(0, 2), 600);
+  return delay(
+    ranked.slice(0, 2).map(({ meetsTargetPrice: _meetsTargetPrice, ...candidate }) => candidate satisfies Candidate),
+    600,
+  );
 }
 
 /** prepare_purchase: 승인된 후보를 실행 가능한 견적으로 고정한다. */

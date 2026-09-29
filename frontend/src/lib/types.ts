@@ -29,7 +29,8 @@ export interface HardPolicy {
 
 /** Soft Preference: Hard Constraint를 만족한 후보들 사이의 우선순위 결정 기준. */
 export interface SoftPreference {
-  pricePriority: number; // 0~100, 높을수록 최저가 우선
+  /** 희망 단가(개당, 원). 비워두면 가격 조건 없이 최저가순으로만 정렬한다. */
+  targetUnitPrice: number | null;
   minRating: number; // 0~5
   deliverySpeed: "standard" | "express";
 }
@@ -37,6 +38,8 @@ export interface SoftPreference {
 export interface PurchaseItem {
   id: string;
   name: string;
+  /** 사용자 입력에서 이 품목을 찾기 위한 별칭 목록(예: "시계" → 손목시계·벽시계). */
+  keywords: string[];
   unit: string;
   unitPrice: number;
 }
@@ -47,6 +50,8 @@ export interface Supplier {
   deliveryFee: number;
   rating: number;
   express: boolean;
+  /** 같은 카탈로그 단가에 곱해지는 판매처별 가격 배율(판매처마다 다른 총액을 만든다). */
+  priceMultiplier: number;
 }
 
 export interface PlanningFormInput {
