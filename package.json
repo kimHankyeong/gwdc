@@ -16,7 +16,14 @@
     "build": "npm run build -w @team11/backend && npm run build -w @team11/frontend && npm run build -w sepolia-audit-boilerplate",
     "test": "npm run test -w @team11/backend && python -m unittest discover -s python_worker -p test_*.py",
     "migrate": "npm run migrate -w @team11/backend",
-    "start": "node backend/dist/server.js"
+    "start": "node backend/dist/server.js",
+    "app": "node scripts/app.mjs",
+    "app:check": "node scripts/app.mjs --check",
+    "qa:requested": "tsx backend/test/requestedQa.ts",
+    "qa:requested:live": "tsx backend/test/requestedQa.ts --live",
+    "deploy:app": "npm run build -w @team11/backend && node scripts/prepare-vercel.mjs && vercel deploy --prod --yes --cwd .test-state/vercel-site",
+    "dev:all": "node scripts/dev-all.mjs",
+    "qa:pwa": "node scripts/check-pwa.mjs"
   },
   "devDependencies": {
     "concurrently": "9.2.4",

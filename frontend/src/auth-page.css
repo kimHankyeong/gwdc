@@ -5,6 +5,6 @@
 .auth-card h1{margin:0 0 30px;font-size:28px;letter-spacing:-.04em}
 .auth-card form{display:grid;gap:20px}.auth-card .field{margin:0}.auth-card input{width:100%;min-height:50px}.auth-card .primary{width:100%;min-height:50px;margin-top:4px}
 .auth-note,.auth-status{margin:0;color:var(--fg-2);font-size:13px;line-height:1.7}.auth-status{padding:12px 14px;background:var(--bg-1);border-radius:10px}
-.auth-switch{margin:26px 0 0;text-align:center;color:var(--fg-2);font-size:14px}.auth-switch a{display:inline-flex;align-items:center;min-height:44px;margin-left:6px;color:var(--accent-1);font-weight:600;text-decoration:none}
+.auth-switch{margin:26px 0 0;text-align:center;color:var(--fg-2);font-size:14px}.auth-switch a{min-width:44px;justify-content:center;display:inline-flex;align-items:center;min-height:44px;margin-left:6px;color:var(--accent-1);font-weight:600;text-decoration:none}
 .auth-card .notification{margin-bottom:20px}.auth-page a:focus-visible{outline:2px solid var(--accent-1);outline-offset:4px;border-radius:4px}
 @media(max-width:600px){.auth-page{padding:24px 20px;justify-content:flex-start;gap:20px}.auth-card{padding:28px 24px}.auth-card h1{font-size:26px}}

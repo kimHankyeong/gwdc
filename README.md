@@ -4,6 +4,12 @@
 
 **주문·결제는 SIMULATION입니다. 실제 판매처 주문·청구·배송·실자금 이동이 없습니다.** 감사만 모의 영수증을 실제 Sepolia AuditRecord에 기록합니다. 검색·Kiln·체인 오류를 가짜 성공으로 바꾸는 fallback은 없습니다.
 
+## 한 번에 실행
+
+- 일반 사용: `start-app.cmd` 더블클릭 또는 `npm run app`. 온라인 앱을 열며 로컬 DB/Python을 켤 필요가 없습니다.
+- 개발: 의존성·DB·`.env` 준비 후 `npm run dev:all`. 검색/API/정책/UI를 함께 실행하고 Ctrl+C로 종료합니다. 감사 signer는 별도입니다.
+- 검증과 제한: [PWA·구매 4건·공격 10건 보고서](docs/QA-PWA-SCENARIOS-2026-09-29.md).
+
 ## 코드 위치
 
 - `backend/src/`: 인증, 정책 버전/캐시, 9개 Tool, Kiln, DDGS 검색/안전한 HTML 수집, PostgreSQL 작업/장부, 주문/감사 Worker
@@ -69,7 +75,7 @@ Kiln 요청마다 전체 정책을 고정 prefix로 포함합니다. 앱의 READ
 
 ## 실제 검색
 
-`BRAVE_SEARCH_API_KEY`와 허용 출처 `SOURCE_ALLOWED_HOSTS`가 필요합니다. 키가 없으면 SEARCH_NOT_CONFIGURED입니다. 안전 수집은 HTTPS/443, 모든 DNS 주소 검사, 검증 IP 연결 고정, redirect 재검증, 10초/2MiB 한도를 적용합니다. 내장 가짜 상품 목록은 없습니다.
+검색은 DDGS의 DuckDuckGo backend를 사용하며 Brave 키는 사용하지 않습니다. `SEARCH_API_URL`과 원문 수집용 `SOURCE_ALLOWED_HOSTS`를 설정합니다. 검색 endpoint가 없으면 SEARCH_NOT_CONFIGURED입니다. 안전 수집은 HTTPS/443, 모든 DNS 주소 검사, 검증 IP 연결 고정, redirect 재검증, 10초/2MiB 한도를 적용합니다. 내장 가짜 상품 목록은 없습니다.
 
 ## 실제 Sepolia 감사
 

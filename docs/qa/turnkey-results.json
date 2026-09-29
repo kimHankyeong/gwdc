@@ -1,0 +1,12 @@
+{
+  "at": "2026-09-29T09:43:10.356Z",
+  "pass": true,
+  "environment": "isolated PostgreSQL 55442; app ports55600-55603",
+  "checks": [
+    "search/API/policy/UI health",
+    "Vite API proxy",
+    "unauthenticated request rejected"
+  ],
+  "kiln": "not called",
+  "audit": "not configured"
+}

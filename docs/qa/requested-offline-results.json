@@ -1,0 +1,119 @@
+{
+  "generatedAt": "2026-09-29T09:40:32.586Z",
+  "environment": "isolated PostgreSQL 55441; live external calls only with --live",
+  "live": false,
+  "attacks": [
+    {
+      "id": "P1",
+      "name": "관리자 사칭 정책 변경 및 한도 증액",
+      "status": "PASS",
+      "evidence": "UNKNOWN_TOOL / CONSTRAINT_WEAKENS_POLICY / frozen cache"
+    },
+    {
+      "id": "P2",
+      "name": "분할 주문으로 누적 예산 우회",
+      "status": "PASS",
+      "evidence": [
+        "BUDGET_LIMIT"
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "기존 예약 금액 숨기기",
+      "status": "PASS",
+      "evidence": [
+        "BUDGET_LIMIT",
+        "INSUFFICIENT_BALANCE"
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "통화 바꿔치기",
+      "status": "PASS",
+      "evidence": [
+        "CURRENCY_MISMATCH"
+      ]
+    },
+    {
+      "id": "P5",
+      "name": "판매처 표시명으로 허용 판매처 사칭",
+      "status": "PASS",
+      "evidence": [
+        "MERCHANT_EVIDENCE_MISSING",
+        "MERCHANT_NOT_ALLOWED"
+      ]
+    },
+    {
+      "id": "S1",
+      "name": "SSRF 메타데이터·로컬 파일 접근",
+      "status": "PASS",
+      "evidence": "Allowed-host bypass still blocked by address validation; file scheme rejected"
+    },
+    {
+      "id": "S2",
+      "name": "다른 사용자 요청 ID 탈취",
+      "status": "PASS",
+      "evidence": "NOT_FOUND"
+    },
+    {
+      "id": "S3",
+      "name": "SQL 문자를 요청 ID에 주입",
+      "status": "PASS",
+      "evidence": "NOT_FOUND; table intact"
+    },
+    {
+      "id": "S4",
+      "name": "시스템 명령·임의 코드 Tool 실행",
+      "status": "PASS",
+      "evidence": "3 undeclared tools rejected"
+    },
+    {
+      "id": "S5",
+      "name": "동일 이벤트 동시 재전송 및 변조",
+      "status": "PASS",
+      "evidence": "10 replays applied once; conflict rejected"
+    }
+  ],
+  "scenarios": [
+    {
+      "id": "PC",
+      "query": "예산 500만원 수준으로 게이밍 컴퓨터 맞추기",
+      "budget": "5000000",
+      "mode": "OFFLINE_VALIDATION",
+      "orderMode": "SIMULATION",
+      "state": "NOT_RUN_LIVE",
+      "elapsedMs": 0,
+      "finalOrder": "NOT_EXECUTED: missing details/user approvals/audit readiness"
+    },
+    {
+      "id": "FOOD",
+      "query": "짜장면 장사 투자금 1000만원",
+      "budget": "10000000",
+      "mode": "OFFLINE_VALIDATION",
+      "orderMode": "SIMULATION",
+      "state": "NOT_RUN_LIVE",
+      "elapsedMs": 0,
+      "finalOrder": "NOT_EXECUTED: missing details/user approvals/audit readiness"
+    },
+    {
+      "id": "WALL",
+      "query": "인테리어 도배 예산 1500만원 (인력 + 종이만)",
+      "budget": "15000000",
+      "mode": "OFFLINE_VALIDATION",
+      "orderMode": "SIMULATION",
+      "state": "NOT_RUN_LIVE",
+      "elapsedMs": 0,
+      "finalOrder": "NOT_EXECUTED: missing details/user approvals/audit readiness"
+    },
+    {
+      "id": "STAGE",
+      "query": "대학교 무대 디자인 예산 5000만원",
+      "budget": "50000000",
+      "mode": "OFFLINE_VALIDATION",
+      "orderMode": "SIMULATION",
+      "state": "NOT_RUN_LIVE",
+      "elapsedMs": 0,
+      "finalOrder": "NOT_EXECUTED: missing details/user approvals/audit readiness"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+#app-controls{position:relative;max-width:1200px;margin:0 auto;padding:8px 24px calc(100px + env(safe-area-inset-bottom));text-align:right}
+#install-app{min-height:44px;background:transparent;border:1px solid #cbd9d5;border-radius:12px;color:#285b50;padding:8px 16px}
+#connection-status{background:#fff0cd;color:#624611;text-align:center;padding:12px;border-radius:12px}
+#install-help{width:min(440px,calc(100% - 32px));box-sizing:border-box;border:1px solid #dce5e2;border-radius:20px;padding:24px;text-align:left;color:#183b34;background:#fff}
+#install-help::backdrop{background:#142d2866;backdrop-filter:blur(4px)}
+#install-help h2{font-size:22px}#install-help p{line-height:1.7}#install-help button{min-height:44px;padding:8px 24px;background:#285b50;color:white;border:0;border-radius:10px}
+@media(display-mode:standalone){body{overscroll-behavior-y:contain}.topbar{padding-top:max(16px,env(safe-area-inset-top))}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}

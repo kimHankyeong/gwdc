@@ -1,1 +1,1 @@
-import {defineConfig} from "vite";export default defineConfig({server:{host:"127.0.0.1",proxy:{"/api/policy-edit-sessions":"http://127.0.0.1:4175","/api":"http://127.0.0.1:4174"}}});
+import {defineConfig} from "vite";export default defineConfig({server:{host:"127.0.0.1",proxy:{"/api/policy-edit-sessions":"http://127.0.0.1:"+(process.env.DEV_POLICY_PORT??4175),"/api":"http://127.0.0.1:"+(process.env.DEV_AGENT_PORT??4174)}}});
