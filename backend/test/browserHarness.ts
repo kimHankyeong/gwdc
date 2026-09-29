@@ -13,6 +13,7 @@ import {SearchService} from "../src/search.js";
 import {Agent} from "../src/agent.js";
 import {KilnClient} from "../src/kiln.js";
 import {createApp} from "../src/server.js";
+import {AuditWorker} from "../src/auditWorker.js";
 import {PurchaseWorker} from "../src/purchaseWorker.js";
 const root=path.resolve(import.meta.dirname,"../.."),base=path.join(root,".test-state");
 await mkdir(base,{recursive:true});const dir=await mkdtemp(path.join(base,"ui-"));
@@ -30,7 +31,7 @@ await db.pool.query("INSERT INTO balances(owner_id,scope_id,currency,balance) VA
 const token=randomBytes(32).toString("base64url");
 await writeFile(path.join(base,"ui-session.json"),JSON.stringify({token}),{mode:0o600});
 const env={...process.env,AUTH_TOKEN_HASHES:JSON.stringify({"browser-test":createHash("sha256").update(token).digest("hex")})};
-const flow=new Workflow(db,new PolicyCache(bundles),new PythonEvaluator(env.PYTHON_BIN??"python",root),new SearchService(env.BRAVE_SEARCH_API_KEY,new Set()),bundles,null);
+const flow=new Workflow(db,new PolicyCache(bundles),new PythonEvaluator(env.PYTHON_BIN??"python",root),new SearchService(env.BRAVE_SEARCH_API_KEY,new Set((env.SOURCE_ALLOWED_HOSTS??" ").split(",").map(s=>s.trim()).filter(Boolean))),bundles,null);
 const app=createApp(flow,new Agent(flow,new KilnClient(env)),env);
 await app.listen({host:"127.0.0.1",port:4174});
 // Separate HTTP surface in the isolated harness; production uses separate OS/DB users.
@@ -39,10 +40,15 @@ const admin=createApp(adminFlow,new Agent(adminFlow,new KilnClient(env)),{...env
 await admin.listen({host:'127.0.0.1',port:4175});
 const heartbeat=async()=>{await db.pool.query("INSERT INTO service_health(name,state) VALUES('policy-admin','CONFIGURED') ON CONFLICT(name) DO UPDATE SET checked_at=now()");};
 await heartbeat();const pulse=setInterval(()=>void heartbeat().catch(()=>{}),20000);pulse.unref();
+// Explicit opt-in: uses real Sepolia transactions and configured test-wallet funds.
+const auditWorker=process.env.QA_REAL_AUDIT==="true"?new AuditWorker(db,root,env):null;
+if(auditWorker)await auditWorker.readiness();
+let auditBusy=false;
+const auditPulse=setInterval(async()=>{if(!auditWorker||auditBusy)return;auditBusy=true;try{await auditWorker.readiness();await auditWorker.tick();}catch{ /* Unavailable is not success; jobs remain pending. */ }finally{auditBusy=false;}},20000);auditPulse.unref();
 const worker=new PurchaseWorker(flow);let workerBusy=false;
 const queue=setInterval(async()=>{if(workerBusy)return;workerBusy=true;try{await worker.tick();}catch{ /* Keep QA service available during shutdown. */ }finally{workerBusy=false;}},1000);queue.unref();
 console.log("Isolated browser verification API ready at 127.0.0.1:4174. No secrets printed.");
-async function stop(){clearInterval(pulse);clearInterval(queue);await app.close();await admin.close();await db.close();
+async function stop(){clearInterval(pulse);clearInterval(queue);clearInterval(auditPulse);await app.close();await admin.close();await db.close();
  if(process.platform==="win32")await promisify(execFile)(path.join(root,"node_modules/@embedded-postgres/windows-x64/native/bin/pg_ctl.exe"),["-D",path.join(dir,"db"),"-m","fast","-w","stop"],{windowsHide:true});
  else await pg.stop();process.exit(0);
 }

@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-29T08:01:34.159334+00:00",
+  "generated": "2026-09-29T08:11:04.959338+00:00",
   "sections": [
     {
       "id": "mockups",
@@ -7,8 +7,19 @@
       "groups": [
         {
           "slug": "purchase-workspace",
-          "label": "purchase-workspace",
           "files": [
+            {
+              "label": "glass-history.html",
+              "path": "mockups/purchase-workspace/glass-history.html"
+            },
+            {
+              "label": "glass-policy.html",
+              "path": "mockups/purchase-workspace/glass-policy.html"
+            },
+            {
+              "label": "glass-purchase.html",
+              "path": "mockups/purchase-workspace/glass-purchase.html"
+            },
             {
               "label": "history.html",
               "path": "mockups/purchase-workspace/history.html"
@@ -31,7 +42,6 @@
       "groups": [
         {
           "slug": "franchise-procurement",
-          "label": "franchise-procurement",
           "files": [
             {
               "label": "brand/style-notes.md",

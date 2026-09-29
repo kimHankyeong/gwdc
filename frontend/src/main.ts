@@ -3,6 +3,7 @@ import '@fontsource/ibm-plex-sans-kr/500.css';
 import '@fontsource/ibm-plex-sans-kr/600.css';
 import '@fontsource/ibm-plex-mono/400.css';
 import './style.css';
+import './glass.css';
 import {explain,stateNames} from './messages';
 const app=document.querySelector<HTMLDivElement>('#app')!;
 let token='',connected=false,health:any=null,policy:any=null,run:any=null,edit:any=null;
@@ -62,7 +63,7 @@ function bind(){
  for(const id of ['connection-toggle','open-connection'])on(id,async()=>{connectionOpen=!connectionOpen;});
  form('connect-form',async()=>{token=value('token');health=await api('/health');scopes=await api('/scopes');connected=true;scope=scopes[0]?.id??'';connectionOpen=false;await refresh();});
  on('disconnect',async()=>{token='';connected=false;run=null;policy=null;scopes=[];recent=[];history=[];edit=null;connectionOpen=true;});
- document.querySelectorAll<HTMLButtonElement>('[data-page]').forEach(b=>b.addEventListener('click',()=>void action(async()=>{if(edit&&b.dataset.page!==page)throw Error('POLICY_BUSY');page=b.dataset.page!;if(page==='history'&&connected)history=await api('/receipts');if(connected)await refresh();})));
+ document.querySelectorAll<HTMLButtonElement>('[data-page]').forEach(b=>b.addEventListener('click',()=>void action(async()=>{if(edit&&b.dataset.page!==page)throw Error('POLICY_BUSY');page=b.dataset.page!;window.scrollTo(0,0);if(page==='history'&&connected)history=await api('/receipts');if(connected)await refresh();})));
  document.getElementById('scope')?.addEventListener('change',()=>void action(async()=>{scope=value('scope');run=null;await refresh();}));
  form('request-form',async()=>{if(!connected)throw Error('UNAUTHORIZED');const track=(document.querySelector('input[name="track"]:checked') as HTMLInputElement).value,input:any={query:value('query')};if(value('maxTotal'))input.maxTotal=value('maxTotal');if(value('quantity'))input.quantity=Number(value('quantity'));if(value('requiredName'))input.requiredName=value('requiredName');if(track==='HardInput'&&(!input.maxTotal||!input.quantity))throw Error('INVALID_INPUT');const r=await api('/agent/runs','POST',{scopeId:scope,track,input});run={id:r.runId};selected='';await refresh();});
  on('resume',async()=>{await api('/agent/runs/'+run.id+'/resume','POST',{});await refresh();});on('refresh',refresh);
