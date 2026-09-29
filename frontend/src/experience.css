@@ -24,3 +24,5 @@
 .ux-policy-options{margin-top:28px}.ux-policy-options h3{font-size:19px}.ux-policy-option{border:1px solid #e3eaf3;border-radius:16px;padding:0 18px;margin:10px 0;background:#fff}.ux-policy-option .ux-toggle-line{border:0}.ux-option-body{border-top:1px solid #edf1f6;padding-top:18px}.ux-option-body .field{margin-bottom:18px}
 [hidden]{display:none!important}
 @media(max-width:700px){.request-surface{padding:25px 21px}.request-surface h2{font-size:29px}.ux-track-choice label{min-height:92px;padding:13px}.ux-track-choice label b{font-size:14px}.ux-track-choice label small{font-size:10px}.ux-sheet{width:100%;left:0;transform:none}}
+
+.ux-sheet-footer{display:flex;gap:10px}.ux-sheet-footer .secondary,.ux-sheet-footer .primary{flex:1;width:auto}
