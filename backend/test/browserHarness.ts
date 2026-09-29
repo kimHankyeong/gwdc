@@ -1,0 +1,40 @@
+// Explicit local browser verification harness. Never used by npm start.
+import {mkdir,mkdtemp,writeFile,readFile} from "node:fs/promises";
+import {randomBytes,createHash} from "node:crypto";
+import path from "node:path";
+import {execFile} from "node:child_process";
+import {promisify} from "node:util";
+import EmbeddedPostgres from "embedded-postgres";
+import {Database} from "../src/db.js";
+import {Workflow} from "../src/workflow.js";
+import {PolicyCache,canonical,digest} from "../src/policy.js";
+import {PythonEvaluator} from "../src/python.js";
+import {SearchService} from "../src/search.js";
+import {Agent} from "../src/agent.js";
+import {KilnClient} from "../src/kiln.js";
+import {createApp} from "../src/server.js";
+const root=path.resolve(import.meta.dirname,"../.."),base=path.join(root,".test-state");
+await mkdir(base,{recursive:true});const dir=await mkdtemp(path.join(base,"ui-"));
+const password=randomBytes(24).toString("hex");
+const pg=new EmbeddedPostgres({databaseDir:path.join(dir,"db"),user:"postgres",password,port:55440,persistent:true,
+ postgresFlags:["-h","127.0.0.1"],initdbFlags:["--encoding=UTF8","--locale=C"],onLog:()=>{},onError:()=>{}});
+await pg.initialise();await pg.start();await pg.createDatabase("uitest");
+const db=new Database("postgresql://postgres:"+password+"@127.0.0.1:55440/uitest");
+await db.pool.query(await readFile(path.join(root,"backend/src/db/001_initial.sql"),"utf8"));
+const p={currency:"KRW",minorDigits:0,maxBudget:"100000",maxPerTransaction:"10000",minimumRemaining:"0",validUntil:"2099-01-01T00:00:00Z",allowedMerchants:[],blockedMerchants:[],blockedBrands:[],minimumReviewScore:null,preferLowerPrice:true,preferHigherReviewScore:false};
+const bundles=path.join(dir,"policies");await mkdir(path.join(bundles,"verification","1"),{recursive:true});await writeFile(path.join(bundles,"verification","1","policy.json"),canonical(p));
+await db.pool.query("INSERT INTO policy_scopes(id,owner_id,active_version) VALUES('verification','browser-test',1)");
+await db.pool.query("INSERT INTO policy_versions(scope_id,version,digest,policy) VALUES('verification',1,$1,$2)",[digest(p),p]);
+await db.pool.query("INSERT INTO balances(owner_id,scope_id,currency,balance) VALUES('browser-test','verification','KRW',100000)");
+const token=randomBytes(32).toString("base64url");
+await writeFile(path.join(base,"ui-session.json"),JSON.stringify({token}),{mode:0o600});
+const env={...process.env,AUTH_TOKEN_HASHES:JSON.stringify({"browser-test":createHash("sha256").update(token).digest("hex")})};
+const flow=new Workflow(db,new PolicyCache(bundles),new PythonEvaluator(env.PYTHON_BIN??"python",root),new SearchService(env.BRAVE_SEARCH_API_KEY,new Set()),bundles,null);
+const app=createApp(flow,new Agent(flow,new KilnClient(env)),env);
+await app.listen({host:"127.0.0.1",port:4174});
+console.log("Isolated browser verification API ready at 127.0.0.1:4174. No secrets printed.");
+async function stop(){await app.close();await db.close();
+ if(process.platform==="win32")await promisify(execFile)(path.join(root,"node_modules/@embedded-postgres/windows-x64/native/bin/pg_ctl.exe"),["-D",path.join(dir,"db"),"-m","fast","-w","stop"],{windowsHide:true});
+ else await pg.stop();process.exit(0);
+}
+process.on("SIGINT",()=>void stop());process.on("SIGTERM",()=>void stop());

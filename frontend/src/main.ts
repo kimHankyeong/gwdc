@@ -1,0 +1,34 @@
+import "./style.css";
+const root=document.querySelector<HTMLDivElement>("#app")!;
+root.innerHTML=`<header><p>TEAM 11 / PURCHASE AGENT</p><h1>구매 조건을 확인하고<br>모의 주문을 실행합니다.</h1><strong>주문·결제 시뮬레이션 — 실제 주문·청구·배송 없음</strong><p>감사는 별도로 실제 Sepolia 기록을 사용합니다. API 미설정은 성공으로 표시하지 않습니다.</p></header>
+<section><h2>연결</h2><label>발급받은 접근 토큰<input id="token" type="password" autocomplete="off"></label><button id="connect">연결 상태 확인</button><pre id="health"></pre></section>
+<nav><button id="purchaseTab">거래</button><button id="policyTab">정책 변경</button><button id="historyTab">영수증</button></nav>
+<section id="trade"><h2>구매 요청</h2><label>정책 범위<select id="scope"></select></label><label>Track<select id="track"><option>Plan</option><option>HardInput</option></select></label><label>구매할 내용<input id="query" placeholder="품목과 조건을 입력하세요"></label><div class="grid"><label>최대 모의 금액<input id="maxTotal" inputmode="numeric"></label><label>수량<input id="quantity" inputmode="numeric"></label></div><label>정확히 일치할 상품명 (선택)<input id="requiredName"></label><button id="start">요청 시작</button><button id="resume">에이전트 실행 / 재시도</button><button id="cancel">안전하게 취소</button><button id="reload">현재 상태 조회</button>
+<h3>질문 답변 / 모의 금액 입력</h3><p>아래 JSON의 simulation 금액은 사용자가 승인할 모의 입력입니다. 실제 판매처 견적이 아닙니다.</p><textarea id="answer" rows="5" placeholder='{"simulation":{"candidateId":"검색 결과 ID","unitPrice":"1000","shipping":"0"}}'></textarea><button id="sendAnswer">답변 전달</button>
+<h3>조건 승인</h3><label>검토한 평가 ID (쉼표 구분)<input id="evidence"></label><button id="approveConstraints">표시된 조건 승인</button>
+<h3>최종 모의 주문 승인</h3><label>Intent ID<input id="intent"></label><button id="refreshQuote">만료 견적 새 버전 조회</button><button id="approvePurchase">표시된 모의 견적 승인</button><p>승인 뒤 에이전트 실행 버튼으로 execute_purchase Tool을 호출합니다.</p><pre id="state">연결 후 요청을 시작하세요.</pre></section>
+<section id="policy" hidden><h2>별도 정책 변경</h2><p>실행·승인 대기·감사 복구 중에는 서버가 편집 진입을 차단합니다. 발행된 정책은 읽기 전용입니다.</p><button id="enterEdit">정책 변경 시작</button><textarea id="draft" rows="16"></textarea><button id="publish">이 정책 초안을 명시적으로 승인·발행</button><button id="cancelEdit">편집 취소</button><pre id="policyState"></pre></section>
+<section id="history" hidden><h2>모의 주문 영수증</h2><button id="receipts">새로고침</button><label>영수증 ID<input id="receiptId"></label><button id="audit">실제 감사 상태 조회</button><pre id="historyState"></pre></section><p id="message" role="status"></p>`;
+let token="",run:any=null,edit:any=null;
+const el=(id:string)=>document.getElementById(id)!;
+const value=(id:string)=>(el(id) as HTMLInputElement).value;
+const show=(id:string,v:unknown)=>el(id).textContent=JSON.stringify(v,null,2);
+async function api(url:string,method="GET",body?:unknown){const r=await fetch("/api"+url,{method,headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});const data=await r.json();if(!r.ok)throw new Error(data.error??"REQUEST_FAILED");return data;}
+function click(id:string,action:()=>Promise<unknown>){el(id).addEventListener("click",async()=>{const b=el(id) as HTMLButtonElement;b.disabled=true;try{await action();el("message").textContent="요청을 확인했습니다.";}catch(e){el("message").textContent=e instanceof Error?e.message:"오류";}finally{b.disabled=false;}});}
+async function refresh(){if(!run)throw Error("RUN_REQUIRED");run=await api("/agent/runs/"+run.id);show("state",run);(el("policyTab")as HTMLButtonElement).disabled=run.active;}
+click("connect",async()=>{token=value("token");show("health",await api("/health"));const scopes=await api("/scopes");el("scope").replaceChildren(...scopes.map((s:any)=>{const o=document.createElement("option");o.value=s.id;o.textContent=s.id+" · "+s.mode;return o;}));});
+click("start",async()=>{const input:any={query:value("query")};if(value("maxTotal"))input.maxTotal=value("maxTotal");if(value("quantity"))input.quantity=Number(value("quantity"));if(value("requiredName"))input.requiredName=value("requiredName");const r=await api("/agent/runs","POST",{scopeId:value("scope"),track:value("track"),input});run={id:r.runId};await refresh();});
+click("resume",async()=>{if(!run)throw Error("RUN_REQUIRED");await api("/agent/runs/"+run.id+"/resume","POST",{});await refresh();});
+click("reload",refresh);
+click("sendAnswer",async()=>{await api("/agent/runs/"+run.id+"/events","POST",{eventId:crypto.randomUUID(),expectedVersion:run.version,type:"ANSWER",payload:JSON.parse(value("answer"))});await refresh();});
+click("cancel",async()=>{await api("/agent/runs/"+run.id+"/events","POST",{eventId:crypto.randomUUID(),expectedVersion:run.version,type:"CANCEL",payload:{}});await refresh();});
+click("approveConstraints",async()=>{await api("/agent/runs/"+run.id+"/constraint-approvals","POST",{constraintVersion:run.constraint_version,policyDigest:run.policy_digest,trackEvidenceIds:value("evidence").split(",").map(s=>s.trim()).filter(Boolean)});await refresh();});
+click("refreshQuote",async()=>{show("state",await api("/purchase-intents/"+value("intent")+"/refresh","POST",{}));await refresh();});
+click("approvePurchase",async()=>{const it=run?.intents.find((i:any)=>i.id===value("intent"));if(!it)throw Error("SELECT_OWNED_INTENT");await api("/purchase-intents/"+it.id+"/approvals","POST",{quoteVersion:it.quote_version,expectedGeneration:it.generation,mode:"SIMULATION",requestKey:crypto.randomUUID()});await refresh();});
+for(const [button,panel]of [["purchaseTab","trade"],["policyTab","policy"],["historyTab","history"]])click(button,async()=>{for(const p of ["trade","policy","history"])el(p).hidden=p!==panel;});
+click("enterEdit",async()=>{edit=await api("/policy-edit-sessions","POST",{scopeId:value("scope")});const p=await api("/policies/"+value("scope"));(el("draft")as HTMLTextAreaElement).value=JSON.stringify(p.policy,null,2);show("policyState",edit);});
+function canonical(v:any):string{return Array.isArray(v)?"["+v.map(canonical).join(",")+"]":v&&typeof v==="object"?"{"+Object.keys(v).sort().map(k=>JSON.stringify(k)+":"+canonical(v[k])).join(",")+"}":JSON.stringify(v);}
+click("publish",async()=>{if(!edit)throw Error("EDIT_REQUIRED");const draft=JSON.parse(value("draft"));const bytes=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(canonical(draft)));const approvedDigest=Array.from(new Uint8Array(bytes),x=>x.toString(16).padStart(2,"0")).join("");show("policyState",await api("/policy-edit-sessions/"+edit.editId+"/publish","POST",{scopeId:value("scope"),baseVersion:edit.baseVersion,draft,approvedDigest}));edit=null;});
+click("cancelEdit",async()=>{if(!edit)throw Error("EDIT_REQUIRED");show("policyState",await api("/policy-edit-sessions/"+edit.editId,"DELETE",{scopeId:value("scope")}));edit=null;});
+click("receipts",async()=>show("historyState",await api("/receipts")));
+click("audit",async()=>show("historyState",await api("/receipts/"+value("receiptId")+"/audit")));

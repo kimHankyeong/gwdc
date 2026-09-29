@@ -1,66 +1,105 @@
-# 프랜차이즈 식자재 발주 에이전트
+# Team 11 · 정책 기반 구매 시뮬레이션
 
-Node.js 24, TypeScript, React/Vite, Fastify, SQLite, Solidity/Hardhat로 만든 챌린지 B 발주·지출 통제 시연 골격입니다. 기본 구동은 로컬 시뮬레이션이며 실제 자금 이동은 없습니다. 원문 필수인 Kiln 및 gpt-oss-120b 조건은 이 구현에서 제외했습니다.
+노션 App Filetrees / PSEUDO 01–03 / 연동 명세를 기준으로 만든 Node.js + TypeScript + PostgreSQL + Python 구현입니다. UI는 React 없이 TypeScript/Vite를 사용합니다.
 
-## 로컬 실행
+**주문·결제는 SIMULATION입니다. 실제 판매처 주문·청구·배송·실자금 이동이 없습니다.** 감사만 모의 영수증을 실제 Sepolia AuditRecord에 기록합니다. 검색·Kiln·체인 오류를 가짜 성공으로 바꾸는 fallback은 없습니다.
 
-Windows PowerShell에서 저장소 루트 기준:
+## 코드 위치
+
+- `backend/src/`: 인증, 정책 버전/캐시, 9개 Tool, Kiln, Brave 검색/안전한 HTML 수집, PostgreSQL 작업/장부, 주문/감사 Worker
+- `python_worker/`: 고정 JSON 평가기. 금액 계산·Hard 판정·허용 후보 정렬. 생성 코드 실행 금지
+- `frontend/`: 모의 주문 표시, 요청/답변, 조건·최종 승인, 재승인, 별도 정책 편집, 영수증
+- `blockchain/`: **같은 저장소**의 `codex/blockchain-network-boilerplate` cd84fa7 원본. `src/runAudit.mjs`는 명시적 입력을 받는 신규 어댑터
+- `backend/test/`: 보안/실제 PostgreSQL 통합 검증. synthetic fixture는 이 경로에만 있음
+- 기본 브랜치에 있던 `apps/`, `packages/`, `opendesign/`은 과거 데모이며 새 workspace/실행/빌드에 포함하지 않습니다.
+
+명세: https://app.notion.com/p/3e9a912539f98048b6a1ef9dfe6700c9
+연동 명세: https://app.notion.com/p/3eaa912539f9811fb9a1d19342371ebe
+
+## 준비
+
+Node.js 24, Python 3, PostgreSQL이 필요합니다.
 
 ```powershell
+npm ci
 Copy-Item .env.example .env
-npm install
+# .env의 실제 값은 로컬에서 입력. 이미 .env가 있으면 덮어쓰지 마세요.
+npm run migrate
+npx tsx backend/src/bootstrap.ts <owner-id> <scope-id> <검토한-policy.json> <초기-모의잔고>
 npm run dev
 ```
 
-웹은 `http://127.0.0.1:5173`, API는 `http://127.0.0.1:4174`에서 엽니다. 본사 운영팀 또는 가맹점 계정을 골라 로그인합니다. `.env`의 기본값은 안전한 로컬 시뮬레이션이며 앱에서 `명시적 데모 발주안`을 선택해야 규칙 기반 발주안을 사용합니다. Codex CLI가 기본 제공자입니다. Claude는 설치·인증 후 선택할 수 있습니다. CLI 실패는 결제 없이 기록됩니다.
+- migration은 DB 소유자 권한으로 1회 실행합니다.
+- bootstrap은 `DATABASE_POLICY_URL`과 명시적 정책 파일·모의 잔고를 요구합니다. 기본 사용자/상품/가격/정책을 자동 생성하지 않습니다.
+- 정책 schema는 `backend/src/schema.ts`입니다. 통화는 ISO 통화 및 최소단위를 검증하며 KRW 기본입니다. 미지원/알 수 없는 강제 규칙은 거절합니다.
+- `AUTH_TOKEN_HASHES`는 관리자가 발급한 32바이트 이상 난수 토큰의 SHA-256과 소유자 ID 매핑입니다. 사용자 선택만으로 로그인하는 데모 우회가 없습니다. 원문 토큰은 사용자에게 비공개로 전달하고 UI 비밀번호 입력에 넣습니다. 브라우저 영구 저장은 하지 않습니다.
+- 브라우저: http://127.0.0.1:5173 / API: http://127.0.0.1:4174
+- `npm start`는 빌드된 API/정적 UI를 제공합니다. 운영에서는 TLS와 동일 출처 reverse proxy를 구성해야 합니다.
 
-## 프로젝트 명령
+## 정책 쓰기 권한 분리
+
+일반 거래 프로세스는 `SERVICE_ROLE=agent`이며 정책 변경 API를 거절합니다. 정책 폴더를 OS/컨테이너에서 읽기 전용으로 제공하고, DB도 정책 버전 SELECT만 가능한 계정을 사용합니다.
+
+DB 소유자로 `backend/src/db/002_roles.sql`을 적용하고 각 로그인 계정에 `team11_agent`, `team11_policy_admin`, `team11_audit` 중 해당 역할만 부여합니다. 일반 계정에는 정책 버전/활성 버전 변경 권한이 없습니다. Windows의 파일 생성 mode 값만으로 읽기 전용 격리가 완성되지는 않으므로 별도 OS 계정의 ACL 또는 컨테이너 read-only mount가 필요합니다.
+
+정책 변경 프로세스는 별도 계정/프로세스로 실행합니다:
+
+```powershell
+$env:SERVICE_ROLE = 'policy-admin'
+$env:PORT = '4175'
+# 이 프로세스만 정책 발행 DB 계정 및 정책 디렉터리 쓰기 권한을 갖도록 설정
+npm start
+```
+
+Vite는 `/api/policy-edit-sessions`를 4175로 연결합니다. 운영 reverse proxy도 동일 경로 분리가 필요합니다. 같은 서비스 계정으로 둘을 실행하면 OS 수준 쓰기 격리는 성립하지 않습니다. 정책 버전/영수증/결정 기록 UPDATE·DELETE는 DB trigger도 거절합니다.
+
+같은 policy scope 잠금으로 실행 시작/재개와 정책 편집 진입을 직렬화합니다. 질문·승인 대기·미완료 감사는 정책 편집을 막습니다. 안전한 취소는 미소비 모의 예약만 해제합니다. 발행은 새 불변 파일과 digest를 만들며 과거 사용액을 초기화하지 않습니다.
+
+## 실행 흐름
+
+1. 요청 시작은 intent/승인 없이 가능합니다. Kiln이 9개 등록 Tool 중 필요한 작업을 선택합니다.
+2. Plan은 조건 초안 → Python 예시 1–2개 → 사용자 조건 승인. HardInput은 명시 입력 일치와 Python 평가 → 사용자 조건 승인.
+3. 실제 검색 결과를 선택합니다. 현재 정적 HTML Product JSON-LD를 지원하며 누락·모호한 옵션·JS-only·로그인 자료는 UNKNOWN/UNSUPPORTED_SOURCE입니다. 리뷰 진위를 보장하지 않습니다.
+4. 모의 가격·배송비는 사용자 입력으로 명시하며 실제 판매자 견적이라고 표시하지 않습니다. 최종 모의 견적/정책/품목을 확인하고 승인합니다.
+5. `execute_purchase`만 작업을 enqueue합니다. Worker는 같은 DB 트랜잭션에서 모의 차감·영수증·감사 작업을 한 번만 저장합니다.
+6. 만료 시 재확인합니다. 재승인은 예약/승인/generation을 갱신하고, 이전 Worker를 무효화한 뒤 다시 Tool 실행을 요구합니다.
+7. 미선택 Tool은 제한된 재요청 후 ACTION_REQUIRED. UI Retry/Cancel이 있으며 무한 대기하지 않습니다.
+
+Kiln 요청마다 전체 정책을 고정 prefix로 포함합니다. 앱의 READY 캐시와 제공사 cached_tokens는 별개입니다. `REQUIRE_PROVIDER_HIT=true`는 제공사의 원자적 cache-only 보장 계약이 없으므로 실행을 차단합니다. **제공사 cache hit 100%를 보장하지 않습니다.**
+
+## 실제 검색
+
+`BRAVE_SEARCH_API_KEY`와 허용 출처 `SOURCE_ALLOWED_HOSTS`가 필요합니다. 키가 없으면 SEARCH_NOT_CONFIGURED입니다. 안전 수집은 HTTPS/443, 모든 DNS 주소 검사, 검증 IP 연결 고정, redirect 재검증, 10초/2MiB 한도를 적용합니다. 내장 가짜 상품 목록은 없습니다.
+
+## 실제 Sepolia 감사
+
+- 원본 v1: KRW 정수·단일 품목·수량×단가+배송비·reviewRequired=false만 지원합니다. 다른 정책은 주문 실행 전 반려합니다.
+- 모의 주문 영수증의 고정 salts/requestId/purchaseId를 사용합니다. 전체 정책 digest와 v1 policyHash는 다릅니다.
+- 같은 저장소 원본 `validatePayloads`, `hashPayload`, `executeTransaction`, AuditRecord ABI를 재사용합니다.
+- `SERVICE_ROLE=audit`인 **단일 signer 호스트**에만 `TRACK_RPC_URL`, `TRACK_VERIFY_RPC_URL`, `TRACK_CHAIN_PRIVATE_KEY`와 테스트 ETH를 설정합니다. 일반 에이전트에 signer 키를 전달하지 마세요.
+- `npm run build -w sepolia-audit-boilerplate`로 원본 계약을 컴파일합니다.
+- 최초 요청마다 계약 배포 + recordPurchase, 재시도는 동일 체크포인트와 서명을 복구합니다. state/evidence와 백업을 보호하고 임의 삭제하지 마세요.
+- HMAC은 원본처럼 signer 개인키에서 용도별 파생되며 암호화가 아닙니다.
+- 실제 receipt status=1·이벤트·두 RPC가 일치해야 verified, finalized 확인 전에는 완료가 아닙니다.
+- 실제 주문/모의 여부 필드는 원본 ABI에 없으므로 체인만으로 실구매·모의 여부를 증명하지 않습니다.
+
+## 검증
 
 ```powershell
 npm run build
 npm test
-npm run screenshots
+npm audit
 ```
 
-`npm run build`는 공유 타입, API, 웹, Hardhat 계약을 빌드합니다. `npm test`는 공유 스키마, API 권한·멱등성·예산·중단·CLI 파서, 계약 정책 테스트를 실행합니다. UI 스크린샷은 Playwright Chromium이 필요합니다. 설치되지 않았다면 `npx playwright install chromium`을 실행합니다.
+PostgreSQL 통합 검사는 npm 패키지의 별도 테스트 클러스터를 loopback에 실행합니다(포트 55439). 운영 DB는 사용하지 않습니다. Windows에서는 pg_ctl로 정상 종료합니다. 테스트 데이터는 Git에서 제외한 `.test-state/`에 남습니다.
 
-시연 화면은 `artifacts/screenshots/`에 저장합니다. 본사 정책, 발주 성공, 예산 초과 차단, 에이전트 중단 상태가 포함됩니다.
+브라우저 검증용 `npx tsx backend/test/browserHarness.ts`는 명시적인 test fixture와 별도 DB(55440), API(4174)를 사용합니다. 기본 실행의 자동 fallback이 아닙니다. 실제 Kiln이 설정되어 있으면 실제 호출하므로 비용이 발생합니다.
 
-## 역할과 시연 데이터
+## 저장 범위 및 아직 환경에서 확인할 항목
 
-- 본사 운영팀: 지점별 예산·허용 공급업체·만료 정책을 승인하고 에이전트를 중단합니다.
-- 가맹점 직원: 품목·수량을 요청하고 정책 근거 및 처리 상태를 확인합니다.
-- 거래 원장: 정책·실행 단계·차단 사유·영수증 JSON을 확인합니다.
-- 모든 계정, 품목 가격, 잔액, 모의 KRW(`DKRW`)는 합성 데이터입니다. 계약 가스는 테스트 네이티브 자산이며 DKRW와 별도로 기록됩니다.
-- demo 공급자는 규칙 기반이며 토큰·전력 수치를 만들지 않습니다. 실제 CLI의 실행시간과 제공된 사용량만 기록합니다.
-
-## CLI 공급자
-
-`LLM_PROVIDER=codex|claude`로 기본 제공자를 선택합니다 (`codex` 기본). 실행 파일은 `CODEX_BIN`, `CLAUDE_BIN`에서 지정할 수 있습니다. Codex CLI에는 읽기 전용 sandbox 및 JSON 출력 스키마를, Claude CLI에는 JSON 스키마와 도구 제한을 적용합니다. 프롬프트는 stdin으로 전달되고 임시 폴더별 격리됩니다. 서명 키는 CLI 환경에 전달하지 않습니다. 미설치·미인증·시간 초과·스키마 오류는 실패로 표시되고 정책 검증·결제까지 진행하지 않습니다.
-
-시뮬레이션을 쓰지 않고 CLI에 연결할 경우 `.env`에서 `ALLOW_DEMO_PROVIDER=false`로 설정하세요. CLI 실행 환경이 Windows에서 PATH에 없다면 `CODEX_BIN`/`CLAUDE_BIN`에 해당 실행 래퍼의 절대 경로를 설정할 수 있습니다.
-
-## 계약과 프라이빗 체인
-
-`DemoKRW`는 0 decimals의 테스트 전용 ERC-20이고, `AgentBudgetVault`는 지점 권한, 허용 공급업체, 만료, 중단, 배송비 포함 누적 예산 및 중복 주문을 확인합니다. 실제 RPC 연결은 `.env`의 `CHAIN_PROVIDER=rpc`, 배포 주소, 지점 signer 및 supplier wallet 설정이 필요합니다. 키를 저장소에 넣지 말고 로컬 비밀 저장소를 사용하세요. RPC URL은 loopback만 허용하도록 서버에서 제한됩니다.
-
-4개 검증 노드는 Docker 없이 Ubuntu WSL/Linux의 Besu에서 실행하도록 준비했습니다. 현재 환경에서 Besu가 설치되지 않아 네트워크 실행·합의는 검증하지 않았습니다.
-
-```bash
-npm run besu:prepare
-npm run besu:start
-npm run besu:stop
-```
-
-먼저 Ubuntu WSL 안에 Java와 Besu를 설치하고 `besu`가 PATH에 있는지 확인하세요. `prepare`는 Besu의 blockchain config 생성 명령으로 개발용 validator 키 4개를 만들고 로컬 전용 폴더에 저장합니다. 키·데이터 디렉터리는 gitignore에 포함했습니다. 모든 노드의 P2P와 HTTP RPC는 `127.0.0.1`에 바인딩되며 RPC 포트는 8545–8548입니다. 이 설정을 공용 네트워크나 실자산에 쓰지 마세요.
-
-## 제한 사항
-
-- 모의 체인은 트랜잭션 해시를 만들지 않습니다. 영수증은 시뮬레이션 모드와 온체인 증빙 부재를 명시합니다.
-- 테스트는 계약과 정책 흐름을 검증하며 Besu 바이너리의 설치·4노드 합의 동작까지 증명하지 않습니다.
-- 보일러플레이트의 로컬 역할 계정은 인증 데모용이며 운영 배포용 계정 시스템이 아닙니다. 운영 네트워크에 노출하지 마세요.
-- 킬른(Kiln), gpt-oss-120b, 실제 결제망은 구현하지 않았습니다.
-
-## 디자인 시스템
-
-새 디자인 시스템 문서는 `opendesign/design-systems/franchise-procurement/README.md`에 있습니다. 제품 화면에 공유 토큰을 직접 연결했습니다. 시연 결과와 화면 구조는 `opendesign/design-systems/franchise-procurement/ui-kit-franchise-procurement/`에서 확인할 수 있습니다.
+- 영구 로그는 모의 승인/반려 최소 필드만. 메시지·추론·Tool 전문·검색/리뷰 원문은 저장하지 않습니다.
+- 정책/조건/출처의 최소 사실·장부/멱등키/현재 작업/영수증/감사 checkpoint는 복구용 업무 상태입니다.
+- 인증 토큰·API 키·DB 비밀번호·signer는 저장소에 넣지 않습니다.
+- 5,000 사용자/200 동시접속은 목표 검증 조건입니다. DB pool/LLM/검색/Python 동시성 제한은 구현했지만 운영 처리량 보장을 뜻하지 않습니다.
+- 로컬에서 200개 동시 인증 조회를 검증했습니다. 이는 200개 동시 구매/LLM 요청의 처리량 검증이 아닙니다.
+- 실제 Brave 검색과 Sepolia E2E는 해당 자격증명·테스트 자금·출처 구성이 있어야 검증할 수 있습니다. 미설정은 미완료 상태로 표시합니다.

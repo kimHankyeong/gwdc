@@ -18,3 +18,13 @@ packages/contracts/besu/run/
 packages/contracts/types/
 playwright-report/
 test-results/
+.test-state/
+policies/
+blockchain/state/
+blockchain/evidence/
+blockchain/.env.sepolia
+.env.*
+!.env.example
+!**/.env.sepolia.example
+__pycache__/
+*.pyc

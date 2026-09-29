@@ -1,40 +1,26 @@
 {
-  "name": "franchise-procurement-agent",
-  "version": "0.1.0",
+  "name": "gwdc-team11",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=24 <25"
   },
   "workspaces": [
-    "apps/*",
-    "packages/*"
+    "backend",
+    "frontend",
+    "blockchain"
   ],
   "scripts": {
-    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
-    "predev": "npm run build:shared",
-    "dev:api": "npm --workspace @franchise/api run dev",
-    "dev:web": "npm --workspace @franchise/web run dev",
-    "build": "npm run typecheck && npm run build:contracts && npm run build:api && npm run build:web",
-    "typecheck": "npm run build:shared && npm --workspace @franchise/shared run typecheck && npm --workspace @franchise/api run typecheck && npm --workspace @franchise/web run typecheck",
-    "build:shared": "npm --workspace @franchise/shared run build",
-    "build:contracts": "npm --workspace @franchise/contracts run build",
-    "build:api": "npm --workspace @franchise/api run build",
-    "build:web": "npm --workspace @franchise/web run build",
-    "start": "node apps/api/dist/server.js",
-    "preview": "npm --workspace @franchise/web run preview",
-    "test": "npm run build:shared && npm run test:shared && npm run test:api && npm run test:contracts",
-    "test:shared": "npm --workspace @franchise/shared run test",
-    "test:api": "npm --workspace @franchise/api run test",
-    "test:contracts": "npm --workspace @franchise/contracts run test",
-    "screenshots": "npm --workspace @franchise/web run screenshots",
-    "besu:prepare": "bash scripts/besu/prepare.sh",
-    "besu:start": "bash scripts/besu/start.sh",
-    "besu:stop": "bash scripts/besu/stop.sh"
+    "dev": "concurrently -k \"npm run dev -w @team11/backend\" \"npm run dev -w @team11/frontend\"",
+    "build": "npm run build -w @team11/backend && npm run build -w @team11/frontend && npm run build -w sepolia-audit-boilerplate",
+    "test": "npm run test -w @team11/backend && python -m unittest discover -s python_worker -p test_*.py",
+    "migrate": "npm run migrate -w @team11/backend",
+    "start": "node backend/dist/server.js"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1",
-    "tsx": "^4.20.6",
+    "concurrently": "9.2.4",
+    "tsx": "4.20.6",
     "typescript": "5.9.3"
   }
 }

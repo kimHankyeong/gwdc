@@ -1,0 +1,20 @@
+{
+  "name": "sepolia-audit-boilerplate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "build": "hardhat compile",
+    "start": "npm run build && node scripts/record-purchase.mjs"
+  },
+  "dependencies": {
+    "dotenv": "16.6.1",
+    "ethers": "6.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "hardhat": "3.18.0",
+    "typescript": "5.9.3"
+  }
+}
