@@ -22,7 +22,7 @@ export async function executeTransaction({
     const raw = await wallet.signTransaction(populated);
     state[label] = { raw, txHash: keccak256(raw), nonce: populated.nonce, status: "signed" };
     validateSigned(state[label], expected, wallet.address);
-    save(); // 이 저장이 실패하면 방송으로 진행하지 않습니다.
+    await save(); // 이 저장이 실패하면 방송으로 진행하지 않습니다.
   }
 
   const saved = state[label];
@@ -32,7 +32,7 @@ export async function executeTransaction({
     assert.ok(!readOnly, "Legacy checkpoint needs already mined transactions for migration");
     const statuses = await Promise.all([provider, witness].map(node => pendingStatus(node, tx, saved.txHash)));
     saved.status = statuses.join("/");
-    save();
+    await save();
     const allowed = new Set(["pending", "not-seen"]);
     assert.ok(statuses.every(status => allowed.has(status)), `${saved.status}: manual review required`);
 
@@ -50,7 +50,7 @@ export async function executeTransaction({
     }
     if (!receipt) {
       saved.status = await pendingStatus(provider, tx, saved.txHash);
-      save();
+      await save();
       throw new Error(`${saved.status}: no receipt yet; reuse the same request ID`);
     }
   }
@@ -58,12 +58,12 @@ export async function executeTransaction({
   // 거절·재구성·RPC 불일치는 모두 완료 상태로 저장하지 않습니다.
   if (receipt.status !== 1) {
     saved.status = "reverted";
-    save();
+    await save();
     throw new Error(`${label} reverted; manual review required`);
   }
   saved.status = await verifyInclusion(provider, receipt, saved.txHash, witness);
   saved.blockNumber = receipt.blockNumber;
   saved.blockHash = receipt.blockHash;
-  save();
+  await save();
   return receipt;
 }

@@ -15,6 +15,7 @@ import { Agent } from "../src/agent.js";
 import { KilnClient } from "../src/kiln.js";
 import { PurchaseWorker } from "../src/purchaseWorker.js";
 import { AuditWorker } from "../src/auditWorker.js";
+import { AuditStore } from "../src/auditStore.js";
 import { createApp } from "../src/server.js";
 const root=path.resolve(import.meta.dirname,"../..");
 test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy exclusion",async()=>{
@@ -33,6 +34,7 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  await db.pool.query("INSERT INTO policy_scopes(id,owner_id,mode,active_version) VALUES('scope','alice','NORMAL',1)");
  await db.pool.query(await readFile(path.join(root,"backend/src/db/002_roles.sql"),"utf8"));
  await db.pool.query(await readFile(path.join(root,"backend/src/db/005_wallets.sql"),"utf8"));
+ await db.pool.query(await readFile(path.join(root,"backend/src/db/007_audit_checkpoints.sql"),"utf8"));
  await db.tx(async c=>{await c.query("SET LOCAL ROLE team11_agent");await c.query("SELECT * FROM policy_scopes FOR UPDATE");});
  await assert.rejects(()=>db!.tx(async c=>{await c.query("SET LOCAL ROLE team11_agent");await c.query("UPDATE policy_scopes SET active_version=99");}),/permission denied/);
  await db.pool.query("INSERT INTO policy_versions(scope_id,version,digest,policy) VALUES('scope',1,$1,$2)",[digest(policy),policy]);
@@ -154,6 +156,14 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  assert.equal((await db.pool.query("SELECT spent,reserved FROM balances")).rows[0].spent,"3000");
  assert.equal((await db.pool.query("SELECT count(*) FROM receipts WHERE owner_id='alice'")).rows[0].count,"3");
  assert.equal((await db.pool.query("SELECT count(*) FROM purchase_jobs WHERE intent_id=$1",[autoIntentId])).rows[0].count,"1");
+ const requestId=(await db.pool.query('SELECT j.request_id FROM audit_jobs j JOIN receipts r ON r.id=j.receipt_id WHERE r.intent_id=$1',[autoIntentId])).rows[0].request_id;
+ await db.pool.query("UPDATE audit_jobs SET fence=7,lease_until=now()+interval '10 minutes' WHERE request_id=$1",[requestId]);
+ const checkpoint=new AuditStore(db,requestId,7),savedState={format:'authenticated-checkpoint-v1',state:{b:2,a:1},mac:'f'.repeat(64)};
+ await checkpoint.saveCheckpoint(savedState);
+ assert.deepEqual(await checkpoint.loadCheckpoint(),savedState);
+ await assert.rejects(()=>new AuditStore(db,requestId,6).saveCheckpoint(savedState),/AUDIT_CHECKPOINT_STALE/);
+ await db.pool.query("UPDATE audit_jobs SET lease_until=now()-interval '1 second' WHERE request_id=$1",[requestId]);
+ await assert.rejects(()=>checkpoint.saveCheckpoint(savedState),/AUDIT_CHECKPOINT_STALE/);
  await assert.rejects(()=>db!.pool.query("UPDATE policy_versions SET digest='tampered'"),/IMMUTABLE_RECORD/);
  const third=await flow.start("alice",{scopeId:"scope",track:"Plan",input:{query:"취소 테스트"}});
  await flow.event("alice",third.runId,{eventId:"cancel3",expectedVersion:1,type:"CANCEL",payload:{}});
