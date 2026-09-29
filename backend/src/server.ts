@@ -76,6 +76,7 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  app.get<{Params:{id:string}}>("/api/receipts/:id",async req=>flow.receipt(req.owner,req.params.id));
  app.get<{Params:{id:string}}>("/api/receipts/:id/audit",async req=>flow.receipt(req.owner,req.params.id,true));
  app.get("/api/receipts",async req=>(await flow.db.pool.query("SELECT id,data,created_at FROM receipts WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 100",[req.owner])).rows);
+ app.get('/api/audits',async req=>(await flow.db.pool.query("SELECT r.id,r.created_at,r.data->'quote'->>'name' AS name,COALESCE(j.state,'PENDING') AS state,j.report FROM receipts r LEFT JOIN audit_jobs j ON j.receipt_id=r.id WHERE r.owner_id=$1 ORDER BY r.created_at DESC LIMIT 50",[req.owner])).rows);
  app.post("/api/policy-edit-sessions",async req=>flow.enterPolicyEdit(req.owner,z.object({scopeId:id}).strict().parse(req.body).scopeId));
  app.post<{Params:{id:string}}>("/api/policy-edit-sessions/:id/publish",async req=>{
   const a=z.object({scopeId:id,baseVersion:z.number().int().positive(),draft:z.unknown(),approvedDigest:z.string().length(64)}).strict().parse(req.body);

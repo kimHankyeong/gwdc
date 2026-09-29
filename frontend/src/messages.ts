@@ -1,4 +1,4 @@
-export const messages:Record<string,string>={
+export const messages:Record<string,string>={INVALID_ACCOUNT_ID:'아이디를 입력해 주세요. 최대 254자이며 공백만 사용할 수 없습니다.',
  UNAUTHORIZED:'로그인이 필요합니다.',AUTH_NOT_CONFIGURED:'인증 서비스가 설정되지 않았습니다.',
  LOGIN_FAILED:'이메일과 비밀번호를 확인해 주세요.',SIGNUP_INPUT_REQUIRED:'이메일과 12자 이상의 비밀번호를 입력해 주세요.',SIGNUP_FAILED:'가입 메일을 발송하지 못했습니다. 이메일을 확인하거나 관리자에게 문의해 주세요.',
  SIGNUP_UNAVAILABLE:'인증 메일 설정 후 회원가입할 수 있습니다.',PASSWORD_MISMATCH:'비밀번호가 일치하지 않습니다.',

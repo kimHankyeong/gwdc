@@ -88,6 +88,11 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  assert.equal((await db.pool.query("SELECT count(*) FROM decision_logs")).rows[0].count,"1");
  const receipt=(await db.pool.query("SELECT * FROM receipts")).rows[0];assert.equal(receipt.mode,"SIMULATION");
  await assert.rejects(()=>flow.receipt("bob",receipt.id),/NOT_FOUND/);
+ const auditHttp=createApp(flow,agent,{AUTH_TOKEN_HASHES:JSON.stringify({alice:createHash('sha256').update(aliceToken).digest('hex'),bob:createHash('sha256').update(bobToken).digest('hex')})});
+ assert.equal((await auditHttp.inject({url:'/api/audits'})).statusCode,401);
+ assert.equal((await auditHttp.inject({url:'/api/audits',headers:{authorization:'Bearer '+aliceToken}})).json()[0].id,receipt.id);
+ assert.deepEqual((await auditHttp.inject({url:'/api/audits',headers:{authorization:'Bearer '+bobToken}})).json(),[]);
+ await auditHttp.close();
  const finalRun=await flow.run("alice",started.runId);
  await assert.rejects(()=>flow.event("alice",started.runId,{eventId:"cancel",expectedVersion:finalRun.version,type:"CANCEL",payload:{}}),/RECOVERY_REQUIRED/);
  const second=await flow.start("alice",{scopeId:"scope",track:"HardInput",input:{query:"상품",maxTotal:"5000",quantity:1}});
