@@ -99,6 +99,8 @@ export class Agent {
      constraintApproval:initial.constraint_approval,evaluations:initial.evaluations,question:initial.question,
      searchStatus:initialSearch.found?{pages:initialSearch.found.pages,queryCount:initialSearch.found.queryCount,
       rejectedCandidateCount:initialSearch.found.rejectedCandidateCount,
+      quoteReadyCount:initialSearch.found.quoteReadyCount,
+      relevanceSelectionApplied:initialSearch.found.relevanceSelectionApplied,
       partial:initialSearch.found.partialSearch,errorCode:initialSearch.found.searchErrorCode}:null})}];
    const seen=new Map<string,string>();let retries=0;const deadline=Date.now()+90000;
    for(let round=0;round<12&&Date.now()<deadline;round++){
@@ -137,6 +139,9 @@ export class Agent {
         else if(searched.performed){
          messages.push({role:"user",content:JSON.stringify({searchStage:"complete",pages:searched.found?.pages??0,
           queryCount:searched.found?.queryCount??0,partial:searched.found?.partialSearch??false,
+          quoteReadyCount:searched.found?.quoteReadyCount??0,
+          rejectedCandidateCount:searched.found?.rejectedCandidateCount??0,
+          relevanceSelectionApplied:searched.found?.relevanceSelectionApplied??false,
           errorCode:searched.found?.searchErrorCode??null,candidates:searched.run.candidates})});
          pause=true;continueAfterSearch=true;
         }
