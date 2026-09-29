@@ -66,8 +66,8 @@ Vite는 `/api/policy-edit-sessions`를 4175로 연결합니다. 운영 reverse p
 1. 요청 시작은 intent/승인 없이 가능합니다. Kiln이 9개 등록 Tool 중 필요한 작업을 선택합니다.
 2. Plan은 조건 초안 → Python 예시 1–2개 → 사용자 조건 승인. HardInput은 명시 입력 일치와 Python 평가 → 사용자 조건 승인.
 3. 실제 검색 결과를 선택합니다. 현재 정적 HTML Product JSON-LD를 지원하며 누락·모호한 옵션·JS-only·로그인 자료는 UNKNOWN/UNSUPPORTED_SOURCE입니다. 리뷰 진위를 보장하지 않습니다.
-4. 모의 가격·배송비는 사용자 입력으로 명시하며 실제 판매자 견적이라고 표시하지 않습니다. 최종 모의 견적/정책/품목을 확인하고 승인합니다.
-5. `execute_purchase`만 작업을 enqueue합니다. Worker는 같은 DB 트랜잭션에서 모의 차감·영수증·감사 작업을 한 번만 저장합니다.
+4. 판매 페이지에서 관측한 상품 가격과 배송비가 모두 확인된 후보만 모의 주문 계산에 사용합니다. 판매자의 확정 견적은 아닙니다. 수동 모드는 품목·금액·정책을 확인한 뒤 승인합니다.
+5. 수동 모드는 승인 후 `execute_purchase`가, 자동 모드는 요청 시 고정한 한도·수량·상품명과 재평가를 통과한 `prepare_purchase`가 작업을 한 건 enqueue합니다. Worker는 같은 DB 트랜잭션에서 모의 차감·영수증·감사 작업을 한 번만 저장합니다.
 6. 만료 시 재확인합니다. 재승인은 예약/승인/generation을 갱신하고, 이전 Worker를 무효화한 뒤 다시 Tool 실행을 요구합니다.
 7. 미선택 Tool은 제한된 재요청 후 ACTION_REQUIRED. UI Retry/Cancel이 있으며 무한 대기하지 않습니다.
 
