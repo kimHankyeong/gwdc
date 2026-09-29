@@ -1,5 +1,6 @@
 export const messages:Record<string,string>={
  UNAUTHORIZED:'개인 접근 토큰을 확인해 주세요.',AUTH_NOT_CONFIGURED:'인증 서비스가 설정되지 않았습니다.',
+ BACKEND_NOT_CONFIGURED:'온라인 실행 서버가 아직 연결되지 않았습니다. 튜토리얼을 먼저 둘러볼 수 있습니다.',
  SERVICE_UNAVAILABLE:'서비스에 연결하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.',
  SEARCH_NOT_CONFIGURED:'검색 API 연결이 필요합니다. 관리자 설정 후 다시 시도해 주세요.',
  SEARCH_UNAVAILABLE:'검색 서비스가 응답하지 않습니다.',SEARCH_INVALID_RESPONSE:'검색 응답을 검증하지 못해 중단했습니다. 후보를 임의로 생성하지 않습니다.',

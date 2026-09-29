@@ -1,0 +1,35 @@
+/* Visual reference: busro-itda.vercel.app, reviewed 2026-09-29.
+   Original purchase interface; no map, travel data, or brand assets copied. */
+:root{--font-sans:'Pretendard','Apple SD Gothic Neo',sans-serif;--fg-1:#202724;--fg-2:#65736b;--fg-3:#738078;--bg-1:#f6f8f6;--paper:#fff;--accent-1:#17634f;--accent-2:#258369;--line:#e7ece8;--line-strong:#d7dfd9}
+body{background:#f6f8f6;background-attachment:initial}
+.app-shell{max-width:1240px;padding:0 32px 48px}
+.sidebar{height:76px;border-bottom:1px solid var(--line);justify-content:flex-end}
+.sidebar nav{height:76px;padding:0;gap:20px;background:none;border:0;border-radius:0;box-shadow:none;align-items:stretch}
+.nav-item{min-width:70px;padding:16px 14px;color:#738078;border-radius:0;border-bottom:2px solid transparent;font-size:14px}
+.nav-item.active,.nav-item:hover:not(:disabled){background:none;box-shadow:none;color:#17634f}.nav-item.active{border-bottom-color:#17634f}
+.topbar{min-height:88px;height:88px}.topbar h1{font-size:27px;letter-spacing:-.055em}
+.connection-button{border:1px solid var(--line);border-radius:12px;background:#fff}
+.surface,.connection-panel{border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:0 3px 12px #17271e08;backdrop-filter:none;-webkit-backdrop-filter:none}
+.content-grid{grid-template-columns:minmax(0,1fr) 300px;gap:24px}
+.section-head h2{font-size:20px}.badge{border-radius:7px}.badge.amber{background:#f5f2e9;color:#796239;border-color:#e8e0ce}
+.track-choice{background:transparent;border-radius:0;padding:0;border-bottom:1px solid var(--line);gap:0}
+.track-choice label,.track-choice label:has(input:checked){background:none;box-shadow:none;border:0;border-bottom:2px solid transparent;border-radius:0;min-height:48px}
+.track-choice label:has(input:checked){border-bottom-color:#17634f;color:#17634f}
+input:not([type=radio],[type=checkbox]),textarea,select{background:#fff;border-radius:10px;border-color:#d7dfd9}
+.primary{background:#17634f;box-shadow:none;border-radius:12px}.primary:hover:not(:disabled){background:#104e3e}
+.secondary{background:#fff;border-radius:12px;border-color:#d7dfd9;color:#17634f}
+.candidate-card{border-radius:12px;background:#fff}.candidate-card:has(input:checked){background:#f0f7f2;border-color:#17634f}
+.candidate:has(input:checked){background:#f0f7f2}.callout,.notification{border-radius:12px}.final-review{background:#f7fbf8;border-color:#9ec4b5;border-radius:12px}
+.policy-version{color:#65736b}.tutorial-launch{color:#65736b}.help-row{margin-top:-8px}.policy-expand{color:#17634f}
+.live-dot{background:#258369}.live-dot.off{background:#8a968e}.recent-row,.receipt-row{border-color:#e7ece8}
+@media(max-width:900px){.app-shell{padding:0 24px 40px}.content-grid{grid-template-columns:minmax(0,1fr) 260px;gap:18px}}
+@media(max-width:700px){
+ .app-shell{padding:0 18px calc(110px + env(safe-area-inset-bottom))}.sidebar{height:0;border:0}
+ .sidebar nav{height:auto;min-height:64px;gap:4px;padding:5px;background:#fffffff2;border:1px solid #e0e7e1;border-radius:22px;box-shadow:0 3px 16px #17271e14;left:18px;right:18px;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+ .nav-item{min-width:0;border-bottom:0;border-radius:16px;font-size:13px}.nav-item.active{background:#edf5ef;border-bottom:0}
+ .topbar{height:88px;min-height:88px}.topbar h1{font-size:26px}.content-grid{display:flex}
+ .surface{border-radius:14px}.policy-rail.surface{border-radius:12px}.connection-button{border-radius:10px}
+ .help-row{margin-top:-8px;margin-bottom:8px}.track-choice label{border-radius:0}
+}
+@media(max-width:360px){.app-shell{padding-left:14px;padding-right:14px}.sidebar nav{left:14px;right:14px}}
+@media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.sidebar nav{background:#fff;backdrop-filter:none;-webkit-backdrop-filter:none;border-color:#738078}}

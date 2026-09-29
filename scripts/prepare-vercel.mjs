@@ -1,0 +1,15 @@
+import {cp,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {resolve,dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const output=resolve(root,'.test-state/vercel-site');
+await mkdir(output,{recursive:true});
+for(const item of ['src','index.html','tsconfig.json','package.json'])await cp(resolve(root,'frontend',item),resolve(output,item),{recursive:true});
+await cp(resolve(root,'api'),resolve(output,'api'),{recursive:true});
+const config=JSON.parse(await readFile(resolve(root,'deploy/vercel.json'),'utf8'));
+config.installCommand='npm install --ignore-scripts';
+config.buildCommand='npm run build';
+config.outputDirectory='dist';
+await writeFile(resolve(output,'vercel.json'),JSON.stringify(config,null,2)+'\n');
+await writeFile(resolve(output,'.vercelignore'),'.env*\nnode_modules\ndist\n.git\n');
+console.log(output);
