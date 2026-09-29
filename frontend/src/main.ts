@@ -139,4 +139,4 @@ window.addEventListener('popstate',()=>{notice='';isError=false;render();});
 render();
 if(authClient)void authClient.auth.getSession().then(({data})=>{if(data.session)void action(loadAccount);});
 void api('/health').then(data=>{health=data;}).catch(err=>{notice=explain(err instanceof Error?err.message:'BACKEND_UNAVAILABLE');isError=true;render();});
-setInterval(()=>{if(connected&&!busy&&!tutorialOpen()&&run?.active&&['PROCESSING','AUDIT_PENDING'].includes(run.state))void action(refresh);},10000);
+setInterval(()=>{if(connected&&!busy&&!tutorialOpen()&&run?.active&&['PROCESSING','AUDIT_PENDING'].includes(run.state))void action(async()=>{if(run.state==='PROCESSING')await api('/agent/runs/'+run.id+'/process','POST',{}).catch(()=>{});await refresh();});},10000);

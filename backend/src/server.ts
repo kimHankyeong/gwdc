@@ -24,6 +24,7 @@ loadEnv({path:path.join(ROOT,".env"),quiet:true});
 declare module "fastify" {interface FastifyRequest {owner:string}}
 export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  const app=Fastify({logger:false,bodyLimit:32768,trustProxy:false});
+ const cloudPurchase=env.POLICY_SERVERLESS==='1'&&env.SERVICE_ROLE!=='policy-admin'?new PurchaseWorker(flow):null;
  app.register(helmet);app.decorateRequest("owner","");
  const tokens:Record<string,string>=JSON.parse(env.AUTH_TOKEN_HASHES??"{}");
  const windows=new Map<string,{at:number,count:number}>();
@@ -65,7 +66,20 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  app.get("/api/agent/runs",async req=>(await flow.db.pool.query("SELECT id,scope_id,track,state,active,input,created_at FROM agent_runs WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 50",[req.owner])).rows);
  app.post("/api/agent/runs",async req=>flow.start(req.owner,req.body));
  app.get<{Params:{id:string}}>("/api/agent/runs/:id",async req=>flow.run(req.owner,req.params.id));
- app.post<{Params:{id:string}}>("/api/agent/runs/:id/resume",async req=>agent.resume(req.owner,req.params.id));
+ app.post<{Params:{id:string}}>("/api/agent/runs/:id/resume",async req=>{
+  const result=await agent.resume(req.owner,req.params.id);
+  if(cloudPurchase&&result.state==='PROCESSING'){
+   await cloudPurchase.tick(req.owner,req.params.id);
+   return flow.run(req.owner,req.params.id);
+  }
+  return result;
+ });
+ if(cloudPurchase)app.post<{Params:{id:string}}>("/api/agent/runs/:id/process",async req=>{
+  const run=await flow.run(req.owner,req.params.id);
+  requireThat(run.active&&run.state==='PROCESSING',"INVALID_STAGE");
+  await cloudPurchase.tick(req.owner,req.params.id);
+  return flow.run(req.owner,req.params.id);
+ });
  const event=z.object({eventId:id,expectedVersion:z.number().int().positive(),type:z.enum(["ANSWER","RETRY","CANCEL"]),
   payload:z.object({query:z.string().min(1).max(600).optional(),maxTotal:money.optional(),quantity:z.number().int().min(1).max(100000).optional(),requiredName:z.string().max(300).optional()}).strict().default({})}).strict();
  app.post<{Params:{id:string}}>("/api/agent/runs/:id/events",async req=>flow.event(req.owner,req.params.id,event.parse(req.body)));

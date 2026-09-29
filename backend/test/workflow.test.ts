@@ -146,7 +146,11 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  assert.equal((await flow.run("alice",automatic.runId)).constraint_approval.source,"AUTO");
  const autoIntentId=autoEvaluated.data.intentId;
  assert.equal((await db.pool.query("SELECT count(*) FROM purchase_jobs WHERE intent_id=$1",[autoIntentId])).rows[0].count,"1");
- await worker.tick();
+ const cloudHttp=createApp(flow,agent,{POLICY_SERVERLESS:'1',SERVICE_ROLE:'agent',AUTH_TOKEN_HASHES:JSON.stringify({alice:createHash('sha256').update(aliceToken).digest('hex'),bob:createHash('sha256').update(bobToken).digest('hex')})});
+ assert.equal((await cloudHttp.inject({method:'POST',url:'/api/agent/runs/'+automatic.runId+'/process',headers:{authorization:'Bearer '+bobToken},payload:{}})).statusCode,404);
+ assert.equal((await cloudHttp.inject({method:'POST',url:'/api/agent/runs/'+automatic.runId+'/process',headers:{authorization:'Bearer '+aliceToken},payload:{}})).statusCode,200);
+ assert.equal((await cloudHttp.inject({method:'POST',url:'/api/agent/runs/'+automatic.runId+'/process',headers:{authorization:'Bearer '+aliceToken},payload:{}})).statusCode,409);
+ await cloudHttp.close();
  assert.equal((await db.pool.query("SELECT spent,reserved FROM balances")).rows[0].spent,"3000");
  assert.equal((await db.pool.query("SELECT count(*) FROM receipts WHERE owner_id='alice'")).rows[0].count,"3");
  assert.equal((await db.pool.query("SELECT count(*) FROM purchase_jobs WHERE intent_id=$1",[autoIntentId])).rows[0].count,"1");

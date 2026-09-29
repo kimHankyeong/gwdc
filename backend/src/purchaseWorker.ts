@@ -4,10 +4,11 @@ import { requireThat } from "./errors.js";
 import { digest } from "./policy.js";
 export class PurchaseWorker {
  constructor(private flow:Workflow) {}
- async tick() {
+ async tick(owner?:string,runId?:string) {
+  requireThat((owner===undefined)===(runId===undefined),"INVALID_INPUT",400);
   if(!await this.flow.auditReady())return false;
   const job=await this.flow.db.tx(async c=>{
-   const row=(await c.query("SELECT * FROM purchase_jobs WHERE state='PENDING' OR (state='RUNNING' AND lease_until<now()) ORDER BY intent_id FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];
+   const row=(await c.query("SELECT j.* FROM purchase_jobs j JOIN purchase_intents i ON i.id=j.intent_id WHERE (j.state='PENDING' OR (j.state='RUNNING' AND j.lease_until<now())) AND ($1::text IS NULL OR (i.owner_id=$1 AND i.run_id=$2)) ORDER BY j.intent_id FOR UPDATE OF j SKIP LOCKED LIMIT 1",[owner??null,runId??null])).rows[0];
    if(!row)return null;
    return (await c.query("UPDATE purchase_jobs SET state='RUNNING',lease_until=now()+interval '30 seconds',fence=fence+1 WHERE intent_id=$1 AND generation=$2 RETURNING *",[row.intent_id,row.generation])).rows[0];
   });
