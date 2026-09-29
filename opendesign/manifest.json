@@ -1,75 +1,84 @@
 {
-  "generated": "2026-09-29T08:11:04.959338+00:00",
+  "generated": "2026-09-29T17:01:36.6239248Z",
   "sections": [
     {
-      "id": "mockups",
       "label": "Mockups",
       "groups": [
+        {
+          "slug": "agent-purchase-flow",
+          "files": [
+            {
+              "path": "mockups/agent-purchase-flow/index.html",
+              "label": "index.html"
+            }
+          ]
+        },
         {
           "slug": "purchase-workspace",
           "files": [
             {
-              "label": "glass-history.html",
-              "path": "mockups/purchase-workspace/glass-history.html"
+              "path": "mockups/purchase-workspace/glass-history.html",
+              "label": "glass-history.html"
             },
             {
-              "label": "glass-policy.html",
-              "path": "mockups/purchase-workspace/glass-policy.html"
+              "path": "mockups/purchase-workspace/glass-policy.html",
+              "label": "glass-policy.html"
             },
             {
-              "label": "glass-purchase.html",
-              "path": "mockups/purchase-workspace/glass-purchase.html"
+              "path": "mockups/purchase-workspace/glass-purchase.html",
+              "label": "glass-purchase.html"
             },
             {
-              "label": "history.html",
-              "path": "mockups/purchase-workspace/history.html"
+              "path": "mockups/purchase-workspace/history.html",
+              "label": "history.html"
             },
             {
-              "label": "policy.html",
-              "path": "mockups/purchase-workspace/policy.html"
+              "path": "mockups/purchase-workspace/policy.html",
+              "label": "policy.html"
             },
             {
-              "label": "purchase.html",
-              "path": "mockups/purchase-workspace/purchase.html"
+              "path": "mockups/purchase-workspace/purchase.html",
+              "label": "purchase.html"
             }
           ]
         }
-      ]
+      ],
+      "id": "mockups"
     },
     {
-      "id": "design-systems",
       "label": "Design Systems",
       "groups": [
         {
           "slug": "franchise-procurement",
           "files": [
             {
-              "label": "brand/style-notes.md",
-              "path": "design-systems/franchise-procurement/brand/style-notes.md"
+              "path": "design-systems/franchise-procurement/brand/style-notes.md",
+              "label": "brand/style-notes.md"
             },
             {
-              "label": "brand/voice-and-tone.md",
-              "path": "design-systems/franchise-procurement/brand/voice-and-tone.md"
+              "path": "design-systems/franchise-procurement/brand/voice-and-tone.md",
+              "label": "brand/voice-and-tone.md"
             },
             {
-              "label": "README.md",
-              "path": "design-systems/franchise-procurement/README.md"
+              "path": "design-systems/franchise-procurement/README.md",
+              "label": "README.md"
             },
             {
-              "label": "SKILL.md",
-              "path": "design-systems/franchise-procurement/SKILL.md"
+              "path": "design-systems/franchise-procurement/SKILL.md",
+              "label": "SKILL.md"
             },
             {
-              "label": "tokens/colors_and_type.css",
-              "path": "design-systems/franchise-procurement/tokens/colors_and_type.css"
+              "path": "design-systems/franchise-procurement/tokens/colors_and_type.css",
+              "label": "tokens/colors_and_type.css"
             },
             {
-              "label": "ui-kit-franchise-procurement/index.html",
-              "path": "design-systems/franchise-procurement/ui-kit-franchise-procurement/index.html"
+              "path": "design-systems/franchise-procurement/ui-kit-franchise-procurement/index.html",
+              "label": "ui-kit-franchise-procurement/index.html"
             }
           ]
         }
-      ]
+      ],
+      "id": "design-systems"
     }
   ]
 }
