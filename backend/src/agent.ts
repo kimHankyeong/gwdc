@@ -101,6 +101,7 @@ export class Agent {
       rejectedCandidateCount:initialSearch.found.rejectedCandidateCount,
       quoteReadyCount:initialSearch.found.quoteReadyCount,
       relevanceSelectionApplied:initialSearch.found.relevanceSelectionApplied,
+      providerFailures:initialSearch.found.providerFailures,
       partial:initialSearch.found.partialSearch,errorCode:initialSearch.found.searchErrorCode}:null})}];
    const seen=new Map<string,string>();let retries=0;const deadline=Date.now()+90000;
    for(let round=0;round<12&&Date.now()<deadline;round++){
@@ -142,6 +143,7 @@ export class Agent {
           quoteReadyCount:searched.found?.quoteReadyCount??0,
           rejectedCandidateCount:searched.found?.rejectedCandidateCount??0,
           relevanceSelectionApplied:searched.found?.relevanceSelectionApplied??false,
+          providerFailures:searched.found?.providerFailures??[],
           errorCode:searched.found?.searchErrorCode??null,candidates:searched.run.candidates})});
          pause=true;continueAfterSearch=true;
         }

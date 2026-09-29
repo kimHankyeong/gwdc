@@ -75,7 +75,11 @@ Kiln 요청마다 전체 정책을 고정 prefix로 포함합니다. 앱의 READ
 
 ## 실제 검색
 
-검색은 Kiln의 기존 Qwen 모델이 LangChain 도구를 선택해 질의를 최대 3개, 총 4페이지까지 탐색합니다. 도구 응답은 매 검색 후 누적 후보 수와 신선한 가격·배송 근거가 갖춰진 후보 수를 갱신합니다. 이 수치만으로 상품 관련성을 판정하지 않으며, 모델이 상품명·모델·제외 브랜드를 함께 확인해 검색을 이어갑니다. 저장되는 후보는 결정론적 서버 검사로 모델 번호 등 식별 anchor와 상품명 토큰이 요청과 맞는지 다시 거릅니다. 시장 경로가 있는 승인 호스트는 `site:www.ikea.com/kr/ko`처럼 도메인 안의 경로까지 좁혀 지역 통화 결과를 우선할 수 있습니다. 기본 검색은 키가 필요 없는 DDGS DuckDuckGo·Brave·Google·Mojeek·Startpage·Yahoo backend 병렬 조회이며, 결과는 질의어와 제목·요약의 일치도 순으로 정렬합니다. 선택적으로 `TAVILY_API_KEY`를 설정하면 Tavily Search API를 사용하며, allowlist 호스트를 우선하고 `site:` 변형은 해당 판매처로 제한합니다. 이 선택 provider는 쿼리마다 검색 API 사용량을 소비할 수 있습니다. Tavily는 무료 계정 월 1,000 API credits와 사용량 기반 유료 플랜을 안내합니다([공식 요금](https://www.tavily.com/pricing)). Kiln/Qwen 모델 설정은 그대로 유지됩니다. 로컬 `/search/text`와 Vercel `/api/compute`는 같은 검색 구현을 사용합니다. 기본 판매 페이지 호스트는 `www.11st.co.kr,www.ikea.com`이며 `SOURCE_ALLOWED_HOSTS`로 교체할 수 있습니다. allowlist 밖 결과의 짧은 제목·요약은 검색어 조정에만 쓰며, untrusted 입력으로 취급합니다. 가격은 판매 페이지 JSON-LD 관측값만 사용하며, 11번가의 명시적 무료배송 표기 또는 JSON-LD 배송비가 없으면 모의 주문 계산을 차단합니다. 가격은 5분 이내의 관측값이어야 합니다. 안전 수집은 HTTPS/443, DNS 주소 검사, 연결 IP 고정, redirect 재검증, 10초/2MiB 한도를 적용합니다. 내장 가짜 상품 목록은 없습니다.
+Kiln의 기존 Qwen 모델이 LangChain 도구를 사용해 질의를 최대 3개, 총 4페이지까지 탐색합니다. 원문 질의를 먼저 실행하고, 상품명·모델·제외 브랜드·가격/배송 근거를 살펴 추가 검색어를 고릅니다. 한국어 판매처 검색에서는 숫자·SKU·약어를 보존하면서 상품어를 현지화할 수 있습니다. Qwen은 자유 형식 문장이 아니라 검증된 `select_relevant_candidates` 도구 호출로 후보 ID를 제출해야 합니다. 선택 호출이 없거나 모르는 ID를 제출하면 후보를 통과시키지 않습니다. 서버는 모델 식별 anchor와 제외 브랜드를 다시 검사하며 가격·배송 근거와 구매 정책을 별도로 검증합니다.
+
+`www.11st.co.kr`이 승인된 경우 11번가의 공식 검색 페이지에서 상품 ID와 제목을 받아 정식 상품 페이지를 수집합니다. 검색 결과의 가격/배송 표시를 견적으로 쓰지 않습니다. 다른 승인 판매처는 DDGS의 DuckDuckGo·Brave·Google·Mojeek·Startpage·Yahoo backend를 병렬 조회하며, 지역 경로가 있는 호스트는 `site:www.ikea.com/kr/ko`처럼 좁힐 수 있습니다. 선택적으로 `TAVILY_API_KEY`를 설정하면 Tavily Search API를 사용하며 검색 API 사용량이 발생합니다([공식 요금](https://www.tavily.com/pricing)). Kiln/Qwen 모델 설정은 그대로 유지됩니다. 로컬 `/search/text`와 Vercel `/api/compute`는 같은 외부 검색 구현을 사용합니다. 기본 판매 페이지 호스트는 `www.11st.co.kr,www.ikea.com`이며 `SOURCE_ALLOWED_HOSTS`로 교체할 수 있습니다.
+
+Allowlist 밖 결과의 짧은 제목·요약은 검색어 조정 힌트로만 취급합니다. 가격은 판매 페이지 JSON-LD에서 읽은 관측값만 사용하고, 11번가의 명시적 무료배송 표기 또는 JSON-LD 배송비가 없으면 모의 주문 계산을 차단합니다. 가격 관측값은 5분 이내여야 합니다. 안전 수집은 HTTPS/443, DNS 주소 검사, 연결 IP 고정, redirect 재검증, 10초/2MiB 한도를 적용합니다. 검색 실패는 생성 결과로 대체하지 않으며, 내장 가짜 상품 목록을 두지 않습니다.
 
 ## 실제 Sepolia 감사
 
@@ -136,9 +140,9 @@ python -m venv .venv-search
 .\.venv-search\Scripts\python.exe -m uvicorn search_service.app:app --host 127.0.0.1 --port 4479 --no-access-log
 ```
 
-`.env`에 `SEARCH_API_URL=http://127.0.0.1:4479`를 지정한 뒤 backend를 시작합니다. 기본 DDGS 검색은 검색 API 키 없이 사용할 수 있으며, Tavily 경로에는 `TAVILY_API_KEY`가 필요합니다. `SOURCE_ALLOWED_HOSTS`를 비우면 판매 페이지 후보도 비워집니다. 검색 순위·가격은 판매처의 현재 재고와 최종 결제액을 보증하지 않습니다.
+DDGS 검색을 사용하려면 `.env`에 `SEARCH_API_URL=http://127.0.0.1:4479`를 지정합니다. 승인 호스트에 `www.11st.co.kr`이 있으면 11번가 직접 검색은 이 Python endpoint 없이도 동작합니다. Tavily 경로에는 `TAVILY_API_KEY`가 필요합니다. `SOURCE_ALLOWED_HOSTS`를 비우면 판매 페이지 후보도 비워집니다. 검색 순위·가격은 판매처의 현재 재고와 최종 결제액을 보증하지 않습니다.
 
-검색 API는 loopback 전용, origin 차단, 본문/결과 크기 제한, 동시 검색 질의 2개(엔진 조회 최대 6개), 일반 결과 60초·빈 결과 및 부분 결과 5초 메모리 캐시(최대 256개), 동일 검색 병합을 적용합니다. 정상적인 무결과 응답은 빈 결과로 돌려보내 LangChain 에이전트가 질의를 바꿔 검색할 수 있게 합니다. `/extract`나 외부 호출자 지정 backend는 제공하지 않습니다. 서버가 결과를 검증한 후 기존 SSRF 보호 수집기로만 원문을 가져옵니다.
+검색 API는 loopback 전용, origin 차단, 본문/결과 크기 제한, 동시 검색 질의 2개(엔진 조회 최대 6개), 일반 결과 60초·빈 결과 및 부분 결과 5초 메모리 캐시(최대 256개), 동일 검색 병합을 적용합니다. 11번가 직접 검색은 인스턴스별 30초 결과·5초 무결과 캐시(최대 256개)와 같은 질의 병합을 적용합니다. 정상적인 무결과 응답은 빈 결과로 돌려보내 LangChain 에이전트가 질의를 바꿔 검색할 수 있게 합니다. `/extract`나 외부 호출자 지정 backend는 제공하지 않습니다. 서버가 결과를 검증한 후 기존 SSRF 보호 수집기로만 원문을 가져옵니다.
 
 이 메타검색 라이브러리는 상위 검색 서비스 상태/제한에 영향을 받으며 200명 동시 검색 처리나 운영 SLA를 보장하지 않습니다. 제한/장애는 429/503으로 차단합니다. 검색 실패를 생성 결과로 채우지 않습니다. 저장소는 교육용 사용을 명시합니다.
 
