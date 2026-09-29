@@ -15,7 +15,7 @@ export const messages:Record<string,string>={INVALID_ACCOUNT_ID:'아이디를 �
  SIMULATION_INPUT_REQUIRED:'후보를 선택하고 모의 단가와 배송비를 입력해 주세요.',SIMULATION_BALANCE_NOT_CONFIGURED:'이 통화의 모의 장부가 준비되지 않았습니다.',
  KILN_NOT_CONFIGURED:'에이전트 API 연결이 필요합니다.',KILN_UNAVAILABLE:'에이전트가 응답하지 않습니다. 현재 상태를 확인하고 재시도해 주세요.',
  LLM_BUSY:'에이전트 사용량이 많습니다. 잠시 후 다시 시도해 주세요.',RUN_BUSY:'진행 중인 요청을 먼저 마치거나 취소해 주세요.',
- INVALID_INPUT:'입력을 확인해 주세요. 금액은 최소 통화 단위의 0 이상 정수로 입력합니다.',INVALID_STAGE:'현재 단계에서 사용할 수 없는 작업입니다.',
+ INVALID_INPUT:'입력을 확인해 주세요. 금액은 최소 통화 단위의 0 이상 정수로 입력합니다.',HARD_INPUT_REQUIRED:'조건 고정에는 최대 금액과 수량이 필요합니다.',REQUEST_TOO_LONG:'요청과 추가 지침을 합쳐 600자 이내로 입력해 주세요.',POLICY_DETAIL_REQUIRED:'켠 정책 기준의 세부 값을 입력해 주세요.',INVALID_STAGE:'현재 단계에서 사용할 수 없는 작업입니다.',
  AUTO_PURCHASE_REQUIRES_FIXED_LIMITS:'자동 모의 주문에는 조건 고정, 최대 금액, 수량, 정확한 상품명이 필요합니다.',AUTO_PURCHASE_LIMIT_MISMATCH:'자동 주문에 동의한 수량 또는 한도를 벗어났습니다.',
  STALE_APPROVAL:'승인 대상이 변경됐습니다. 최신 내용을 확인해 주세요.',STALE_RUN:'요청 상태가 바뀌었습니다. 다시 확인해 주세요.',STALE_CONSTRAINTS:'구매 조건이 바뀌었습니다.',
  CONSTRAINT_APPROVAL_REQUIRED:'구매 조건과 판정 결과를 먼저 확인하고 승인해 주세요.',PURCHASE_APPROVAL_REQUIRED:'최종 모의 견적을 확인하고 동의해 주세요.',
