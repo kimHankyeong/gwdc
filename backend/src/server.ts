@@ -84,7 +84,7 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
   reply.code(500).send({error:"INTERNAL_ERROR"});
  });
  const healthStatus=async()=>({orderMode:"SIMULATION",chainMode:"SEPOLIA_REAL",gasMode:(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='audit-relayer' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount?"RELAYED":await flow.auditReady()?"PERSONAL":"UNAVAILABLE",configured:{
-  kiln:!!env.KILN_API_KEY,search:flow.search.configured(),auth:env.AUTH_MODE==='supabase'||Object.keys(tokens).length>0,
+  kiln:typeof env.KILN_API_KEY==='string'&&env.KILN_API_KEY.startsWith('sk-bk-'),search:flow.search.configured(),auth:env.AUTH_MODE==='supabase'||Object.keys(tokens).length>0,
   audit:await flow.auditReady()},capabilities:{audit:await flow.auditReady()?"VERIFIED":"UNAVAILABLE",
   policyAdmin:env.POLICY_SERVERLESS==='1'||!!(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='policy-admin' AND state='CONFIGURED' AND checked_at>now()-interval '60 seconds'")).rowCount},notice:"Configuration is not live verification"});
  app.get('/api/health',healthStatus);
