@@ -2,13 +2,60 @@
 
 Node.js 24, TypeScript, React/Vite, Fastify, SQLite, Solidity/Hardhat로 만든 챌린지 B 발주·지출 통제 시연 골격입니다. 기본 구동은 로컬 시뮬레이션이며 실제 자금 이동은 없습니다. 원문 필수인 Kiln 및 gpt-oss-120b 조건은 이 구현에서 제외했습니다.
 
+## UI First Draft
+
+`ui-first-draft` 브랜치는 기존 기능과 API 계약을 유지하면서 화면 구조를 다시 설계한 첫 번째 UI 제안입니다. 핵심 원칙은 **필요한 판단과 행동만 먼저 보여주고, 나머지는 사용자가 요청할 때 드러내는 것**입니다.
+
+- 화면을 카드로 채우지 않고 여백과 타이포그래피로 정보의 우선순위를 구분합니다.
+- 역할마다 필요한 메뉴만 노출합니다. 본사는 `운영 · 정책 · 기록`, 지점은 `구매 요청 · 구매 기록`만 봅니다.
+- 공급업체 조건, 정책 원문, 감사 이벤트, 거래 증빙은 접힌 상세 영역에 둡니다.
+- 각 화면에는 하나의 중심 질문과 하나의 주 행동만 남깁니다.
+- 상태색은 정상·주의·중단처럼 의미가 있는 경우에만 제한적으로 사용합니다.
+- 데스크톱과 모바일에서 같은 정보 순서와 조작 방식을 유지합니다.
+
+### 화면 구성
+
+| 역할 | 화면 | 처음 보이는 정보 | 상세 영역으로 숨긴 정보 |
+| --- | --- | --- | --- |
+| 본사 | 운영 | 전체 예산, 사용액, 요청 수, 지점별 잔액 | 지점 정책 상세, 최근 구매 활동 |
+| 본사 | 정책 | 지점 선택, 예산, 저장 행동 | 허용 공급업체, 만료일, 전체 정책, 중단 행동 |
+| 본사 | 기록 | 공급업체, 일시, 상태, 금액 | 요청 품목, 정책 근거, 트랜잭션과 영수증 |
+| 지점 | 구매 요청 | 사용 가능 예산, 품목과 수량, 구매안 만들기 | 생성 제공자, 적용 중인 구매 규칙 |
+| 지점 | 구매 기록 | 구매 결과 목록 | 실행 단계, 정책 근거와 증빙 |
+
+### 프런트엔드 구조
+
+```text
+apps/web/src/main.tsx
+└─ QuietApp.tsx                    세션, 역할별 내비게이션, 새로고침, 주문 상태 폴링
+   ├─ QuietHeadquartersPanel.tsx   본사 운영 현황과 정책 편집
+   ├─ QuietOrdersPanel.tsx         지점 구매 요청 작성
+   └─ QuietLedgerPanel.tsx         역할별 구매 기록
+
+apps/web/src/minimal-ui.css        UI First Draft 전용 반응형 스타일
+apps/web/src/api.ts                기존 API 클라이언트 재사용
+apps/web/src/Visual.tsx             기존 상태·피드백 컴포넌트 재사용
+```
+
+기존 `App.tsx`, `HeadquartersPanel.tsx`, `OrdersPanel.tsx`, `LedgerPanel.tsx`는 비교와 복구를 위해 그대로 보존했습니다. `main.tsx`만 새 UI 진입점인 `QuietApp`을 선택합니다.
+
+### 현재 검증 상태
+
+- 전체 TypeScript 타입 검사 통과
+- Vite 프로덕션 웹 빌드 통과
+- 본사 운영·정책·기록과 지점 구매 요청·기록 흐름 확인
+- 390px 모바일 폭에서 레이아웃과 수평 오버플로 확인
+- 키보드 포커스, 의미 있는 랜드마크, 입력 레이블, 현재 메뉴 표시 적용
+
+이 브랜치는 시각 방향과 정보 구조를 검증하기 위한 초안입니다. 운영 반영 전에는 공통 UI 프리미티브 추출, 기존·신규 CSS 통합, 실제 인증, 정식 WCAG 검사와 브라우저 회귀 테스트가 추가로 필요합니다.
+
 ## 로컬 실행
 
 Windows PowerShell에서 저장소 루트 기준:
 
 ```powershell
 Copy-Item .env.example .env
-npm install
+npm ci
 npm run dev
 ```
 
@@ -17,12 +64,14 @@ npm run dev
 ## 프로젝트 명령
 
 ```powershell
+npm run typecheck
+npm run build:web
 npm run build
 npm test
 npm run screenshots
 ```
 
-`npm run build`는 공유 타입, API, 웹, Hardhat 계약을 빌드합니다. `npm test`는 공유 스키마, API 권한·멱등성·예산·중단·CLI 파서, 계약 정책 테스트를 실행합니다. UI 스크린샷은 Playwright Chromium이 필요합니다. 설치되지 않았다면 `npx playwright install chromium`을 실행합니다.
+`npm run typecheck`는 공유 타입, API, 웹의 TypeScript를 검사하고, `npm run build:web`은 웹 프로덕션 번들을 생성합니다. `npm run build`는 여기에 Hardhat 계약 빌드까지 포함합니다. `npm test`는 공유 스키마, API 권한·멱등성·예산·중단·CLI 파서, 계약 정책 테스트를 실행합니다. UI 스크린샷은 Playwright Chromium이 필요합니다. 설치되지 않았다면 `npx playwright install chromium`을 실행합니다.
 
 시연 화면은 `artifacts/screenshots/`에 저장합니다. 본사 정책, 발주 성공, 예산 초과 차단, 에이전트 중단 상태가 포함됩니다.
 
