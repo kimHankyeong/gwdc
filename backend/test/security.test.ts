@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { publicAddress,parseProduct,safeHttp,SearchService } from "../src/search.js";
+import { focusedProductQuery } from "../src/searchAgent.js";
+test("Focused product retry removes budget wording but retains identity",()=>{
+ assert.equal(focusedProductQuery("카누 바리스타 어반 캡슐커피머신 100만원 이내"),"카누 바리스타 어반 캡슐커피머신");
+ assert.equal(focusedProductQuery("Samsung Buds3 Pro under KRW 300000"),"Samsung Buds3 Pro");
+});
 import {sourceMerchant} from "../src/workflow.js";
 test("Seller display names cannot impersonate an allowed merchant",()=>{
  const fields=parseProduct('<script type="application/ld+json">{"@type":"Product","offers":{"seller":{"name":"trusted.example"}}}</script>');
@@ -11,7 +16,7 @@ test("Malformed search responses fail; a documented empty response remains empty
  try {
   globalThis.fetch=async()=>new Response('{}',{status:200});
   await assert.rejects(()=>new SearchService('http://127.0.0.1:4479',new Set()).search('test'),/SEARCH_INVALID_RESPONSE/);
-  globalThis.fetch=async()=>new Response(JSON.stringify({provider:'ddgs',backend:'duckduckgo',results:[]}),{status:200});
+  globalThis.fetch=async()=>new Response(JSON.stringify({provider:'ddgs',backend:'multi',partial:false,failedEngines:[],results:[]}),{status:200});
   assert.deepEqual(await new SearchService('http://127.0.0.1:4479',new Set()).search('test'),[]);
  }finally{globalThis.fetch=fetchOriginal;}
 });
@@ -45,7 +50,7 @@ test("HTML extraction does not fabricate missing price, shipping or reviews",()=
 });
 test("General web pages never enter product search results",async()=>{
  const original=globalThis.fetch;
- try{globalThis.fetch=async()=>new Response(JSON.stringify({provider:'ddgs',backend:'duckduckgo',results:[{title:'Wikipedia',href:'https://en.wikipedia.org/wiki/Product'}]}));
+ try{globalThis.fetch=async()=>new Response(JSON.stringify({provider:'ddgs',backend:'multi',partial:false,failedEngines:[],results:[{title:'Wikipedia',href:'https://en.wikipedia.org/wiki/Product'}]}));
   assert.deepEqual(await new SearchService('http://127.0.0.1:4479',new Set(['shop.example'])).search('상품'),[]);
  }finally{globalThis.fetch=original;}
 });
@@ -69,7 +74,7 @@ test("Unknown policy rules and invalid currency fail closed",()=>{
 test("Search cursors bind query and run context",async()=>{
  const original=globalThis.fetch;const offsets:string[]=[];
  try{
-  globalThis.fetch=async(_url,init)=>{offsets.push(String(JSON.parse(String(init?.body)).page));return new Response(JSON.stringify({provider:'ddgs',backend:'duckduckgo',results:Array.from({length:10},(_,i)=>({title:'item '+i,href:'https://example.com/'+i}))}));};
+  globalThis.fetch=async(_url,init)=>{offsets.push(String(JSON.parse(String(init?.body)).page));return new Response(JSON.stringify({provider:'ddgs',backend:'multi',partial:false,failedEngines:[],results:Array.from({length:10},(_,i)=>({title:'item '+i,href:'https://example.com/'+i}))}));};
   const service=new SearchService('http://127.0.0.1:4479',new Set());const page=await service.searchPage('test','owner:run:1');
   assert.ok(page.nextCursor);
   await assert.rejects(()=>service.searchPage('test','other-run',page.nextCursor!),/SEARCH_CURSOR_INVALID/);

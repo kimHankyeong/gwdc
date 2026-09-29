@@ -7,6 +7,12 @@ import { AppError, requireThat } from "./errors.js";
 
 const maxPages = 4;
 const maxQueries = 3;
+export function focusedProductQuery(value:string) {
+ return value.normalize("NFKC")
+  .replace(/\b(?:under|below|within|budget|max(?:imum)?)\b/giu," ")
+  .replace(/(?:(?:KRW|USD|EUR)\s*\d[\d,.]*|\d[\d,.]*\s*(?:만원|천원|원|원대|KRW|USD|EUR)|(?:이내|이하|미만|최대|예산|정도|구매해|찾아줘))/giu," ")
+  .replace(/\s+/gu," ").trim();
+}
 const normalize = (value:string) => value.normalize("NFKC").trim().replace(/\s+/g," ").toLocaleLowerCase("ko-KR");
 const splitTerms = (value:string) => value.normalize("NFKC").match(/[\p{L}\p{N}]+/gu)??[];
 const terms = (value:string) => splitTerms(value).map(normalize);
@@ -178,8 +184,22 @@ export class ProductSearchAgent {
    quantity:run.constraints?.quantity??run.input.quantity??null,maxTotal:run.constraints?.maxTotal??run.input.maxTotal??null,
    excludedBrands:run.constraints?.excludedBrands??[],currency:policy.currency};
   const initialSearch=JSON.parse(await searchPage({query:run.input.query}));
+  const focusedSearches:any[]=[];
+  // Always make a bounded first-party retry without budget/intent modifiers before
+  // asking the model to choose candidates. This prevents a weak first result from
+  // being mistaken for a complete search and keeps the retry inside approved hosts.
+  if(quoteReadyCount()<3&&pages<maxPages){
+   const focused=focusedProductQuery(identity);
+   if(focused&&normalize(focused)!==normalize(run.input.query)){
+    for(const host of ["www.11st.co.kr","www.ikea.com"]){
+     if(pages>=maxPages||queries.size>=maxQueries)break;
+     if(!approvedSearchDomains.has(host))continue;
+     focusedSearches.push(JSON.parse(await searchPage({query:`site:${host} ${focused}`})));
+    }
+   }
+  }
   const currentQuoteReadyCount=quoteReadyCount();
-  await searchAgent.invoke({messages:[{role:"user",content:JSON.stringify({request,initialSearch,quoteReadyCount:currentQuoteReadyCount})}]},{recursionLimit:12});
+  await searchAgent.invoke({messages:[{role:"user",content:JSON.stringify({request,initialSearch,focusedSearches,quoteReadyCount:currentQuoteReadyCount})}]},{recursionLimit:12});
   if(searchFailure&&!candidates.size&&!discoveryCount)throw searchFailure;
   requireThat(pages>0,"SEARCH_AGENT_NO_EXECUTION",503);
   const relevanceSelection=selectionState.current as z.infer<typeof relevanceSelectionSchema>|null;

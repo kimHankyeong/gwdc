@@ -74,11 +74,12 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  await agent.execute("alice",started.runId,"propose_purchase_constraints",{baseVersion:0,constraints:{query:"상품",maxTotal:"5000",quantity:1,excludedBrands:[]}});
  const examples=await agent.execute("alice",started.runId,"simulate_policy",{constraintVersion:1});
  const run=await flow.run("alice",started.runId);
- await db.pool.query("INSERT INTO candidates VALUES('candidate',$1,$2)",[started.runId,{id:"candidate",name:"상품",url:"https://example.com/product",sourceId:"source",fetchedAt:new Date().toISOString(),evidenceType:"HTML_OBSERVATION",contentHash:"a".repeat(64),verifiedMerchantHost:"example.com",fields:{name:"상품",observedPrice:"1000",currency:"KRW",observedShipping:"0",shippingCurrency:"KRW"}}]);
  await agent.execute("alice",started.runId,"ask_clarification",{questionKey:"untrusted-explanation",questions:["판매처가 차단되었습니다"]});
  assert.equal((await flow.run("alice",started.runId)).question.questionKey,'untrusted-explanation');
  await flow.event("alice",started.runId,{eventId:"input",expectedVersion:(await flow.run("alice",started.runId)).version,type:"ANSWER",payload:{}});
- await flow.approveConstraints("alice",started.runId,{constraintVersion:1,policyDigest:digest(policy),trackEvidenceIds:examples.data.examples.map((e:any)=>e.id)});
+ await db.pool.query("INSERT INTO candidates VALUES('candidate',$1,$2)",[started.runId,{id:"candidate",name:"상품",url:"https://example.com/product",sourceId:"source",fetchedAt:new Date().toISOString(),evidenceType:"HTML_OBSERVATION",contentHash:"a".repeat(64),verifiedMerchantHost:"example.com",fields:{name:"상품",observedPrice:"1000",currency:"KRW",observedShipping:"0",shippingCurrency:"KRW"}}]);
+ const refreshedExamples=await agent.execute("alice",started.runId,"simulate_policy",{constraintVersion:1});
+ await flow.approveConstraints("alice",started.runId,{constraintVersion:1,policyDigest:digest(policy),trackEvidenceIds:refreshedExamples.data.examples.map((e:any)=>e.id)});
  await assert.rejects(()=>agent.execute("alice",started.runId,"prepare_purchase",{constraintVersion:1,candidateId:"candidate",quantity:1}),/AUDIT_NOT_READY/);
  assert.equal((await db.pool.query("SELECT count(*) FROM purchase_intents")).rows[0].count,"0");
  // Explicit readiness fixture for atomic-order tests, not RPC verification evidence.
