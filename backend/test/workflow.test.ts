@@ -50,14 +50,24 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  await assert.rejects(()=>flow.run("bob",started.runId),/NOT_FOUND/);
  await assert.rejects(()=>flow.enterPolicyEdit("alice","scope"),/POLICY_BUSY/);
  await agent.execute("alice",started.runId,"ask_clarification",{questionKey:"budget",questions:["조건 확인"]});
+ await assert.rejects(()=>agent.resume("alice",started.runId),/INVALID_STAGE/);
+ assert.equal((await flow.run("alice",started.runId)).state,"NEEDS_INPUT");
  await agent.execute("alice",started.runId,"propose_purchase_constraints",{baseVersion:0,constraints:{query:"상품",maxTotal:"5000",quantity:1,excludedBrands:[]}});
  const examples=await agent.execute("alice",started.runId,"simulate_policy",{constraintVersion:1});
  const run=await flow.run("alice",started.runId);
  await db.pool.query("INSERT INTO candidates VALUES('candidate',$1,$2)",[started.runId,{id:"candidate",name:"상품",url:"https://example.com/product",sourceId:"source",fetchedAt:new Date().toISOString(),fields:null}]);
  await flow.event("alice",started.runId,{eventId:"input",expectedVersion:run.version,type:"ANSWER",payload:{simulation:{candidateId:"candidate",unitPrice:"1000",shipping:"0"}}});
  await flow.approveConstraints("alice",started.runId,{constraintVersion:1,policyDigest:digest(policy),trackEvidenceIds:examples.data.examples.map((e:any)=>e.id)});
+ await assert.rejects(()=>agent.execute("alice",started.runId,"prepare_purchase",{constraintVersion:1,candidateId:"candidate",quantity:1}),/AUDIT_NOT_READY/);
+ assert.equal((await db.pool.query("SELECT count(*) FROM purchase_intents")).rows[0].count,"0");
+ // Explicit readiness fixture for atomic-order tests, not RPC verification evidence.
+ await db.pool.query("INSERT INTO service_health(name,state) VALUES('audit','VERIFIED')");
+ await db.pool.query("UPDATE service_health SET checked_at=now()-interval '61 seconds'");
+ assert.equal(await flow.auditReady(),false);
+ await db.pool.query("UPDATE service_health SET checked_at=now()");
  const prepared=await agent.execute("alice",started.runId,"prepare_purchase",{constraintVersion:1,candidateId:"candidate",quantity:1});
  const intentId=prepared.data.intentId;
+ await assert.rejects(()=>agent.execute("alice",started.runId,"ask_clarification",{questionKey:"wrong-stage",questions:["질문"]}),/INVALID_STAGE/);
  await assert.rejects(()=>agent.execute("alice",started.runId,"execute_purchase",{intentId}),/PURCHASE_APPROVAL_REQUIRED/);
  await flow.approvePurchase("alice",intentId,{quoteVersion:1,expectedGeneration:1,mode:"SIMULATION",requestKey:"approval-one"});
  await Promise.all([agent.execute("alice",started.runId,"execute_purchase",{intentId}),agent.execute("alice",started.runId,"execute_purchase",{intentId})]);

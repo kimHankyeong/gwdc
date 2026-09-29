@@ -11,7 +11,7 @@
 - `frontend/`: 모의 주문 표시, 요청/답변, 조건·최종 승인, 재승인, 별도 정책 편집, 영수증
 - `blockchain/`: **같은 저장소**의 `codex/blockchain-network-boilerplate` cd84fa7 원본. `src/runAudit.mjs`는 명시적 입력을 받는 신규 어댑터
 - `backend/test/`: 보안/실제 PostgreSQL 통합 검증. synthetic fixture는 이 경로에만 있음
-- 기본 브랜치에 있던 `apps/`, `packages/`, `opendesign/`은 과거 데모이며 새 workspace/실행/빌드에 포함하지 않습니다.
+- 기본 브랜치의 `apps/`, `packages/`는 과거 데모이며 새 workspace/실행/빌드에 포함하지 않습니다. `opendesign/mockups/purchase-workspace/`는 현재 UI의 정적 디자인 산출물입니다.
 
 명세: https://app.notion.com/p/3e9a912539f98048b6a1ef9dfe6700c9
 연동 명세: https://app.notion.com/p/3eaa912539f9811fb9a1d19342371ebe
@@ -103,3 +103,12 @@ PostgreSQL 통합 검사는 npm 패키지의 별도 테스트 클러스터를 lo
 - 5,000 사용자/200 동시접속은 목표 검증 조건입니다. DB pool/LLM/검색/Python 동시성 제한은 구현했지만 운영 처리량 보장을 뜻하지 않습니다.
 - 로컬에서 200개 동시 인증 조회를 검증했습니다. 이는 200개 동시 구매/LLM 요청의 처리량 검증이 아닙니다.
 - 실제 Brave 검색과 Sepolia E2E는 해당 자격증명·테스트 자금·출처 구성이 있어야 검증할 수 있습니다. 미설정은 미완료 상태로 표시합니다.
+
+## UI 재설계 및 QA (2026-09-29)
+
+- 구매 계획·정책 관리·모의 주문 기록을 TypeScript로 재설계했습니다. 후보 선택과 승인을 폼으로 제공하며 raw JSON/ID 입력을 요구하지 않습니다.
+- `opendesign/mockups/purchase-workspace/`의 3개 HTML은 정적 디자인 자료입니다. 실행 화면은 Vite의 5173 포트입니다.
+- 기존 DB도 `npm run migrate` 및 DB 소유자로 `backend/src/db/002_roles.sql` 재적용이 필요합니다. `service_health`와 오류 코드 열이 추가됩니다.
+- 별도 감사 프로세스가 두 HTTPS Sepolia RPC의 체인 ID와 signer 테스트 잔액(각 0.004 ETH 이상)을 검증해 20초마다 heartbeat를 남깁니다. 60초 이내 VERIFIED가 없으면 견적 준비·주문 실행·Worker 차감이 차단됩니다. 준비 확인 이후 장애가 나면 감사 완료를 보장하지는 않으며 작업은 복구 대기합니다.
+- HTML의 판매처 표시명은 신원 증거가 아닙니다. 검증된 판매처 adapter가 없는 현재, 판매처 제한 정책은 MERCHANT_EVIDENCE_MISSING으로 차단됩니다.
+- 검증 결과와 연결 한계: [재설계 QA](docs/QA-REDESIGN-2026-09-29.md).

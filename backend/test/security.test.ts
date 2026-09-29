@@ -1,6 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { publicAddress,parseProduct,safeHttp } from "../src/search.js";
+import { publicAddress,parseProduct,safeHttp,SearchService } from "../src/search.js";
+import {sourceMerchant} from "../src/workflow.js";
+test("Seller display names cannot impersonate an allowed merchant",()=>{
+ const fields=parseProduct('<script type="application/ld+json">{"@type":"Product","offers":{"seller":{"name":"trusted.example"}}}</script>');
+ assert.equal(sourceMerchant({url:'https://attacker.example',fields}),null);
+});
+test("Malformed search responses fail; a documented empty response remains empty",async()=>{
+ const fetchOriginal=globalThis.fetch;
+ try {
+  globalThis.fetch=async()=>new Response('{}',{status:200});
+  await assert.rejects(()=>new SearchService('fixture',new Set()).search('test'),/SEARCH_INVALID_RESPONSE/);
+  globalThis.fetch=async()=>new Response(JSON.stringify({type:'search',query:{original:'test'}}),{status:200});
+  assert.deepEqual(await new SearchService('fixture',new Set()).search('test'),[]);
+ }finally{globalThis.fetch=fetchOriginal;}
+});
 import { KilnClient } from "../src/kiln.js";
 import { policySchema } from "../src/schema.js";
 import { toolDefinitions } from "../src/tools.js";
@@ -42,4 +56,16 @@ test("Unknown policy rules and invalid currency fail closed",()=>{
  assert.equal(policySchema.safeParse({...p,currency:"ZZZ"}).success,false);
  assert.equal(policySchema.safeParse({...p,minorDigits:2}).success,false);
  assert.equal(policySchema.safeParse({...p,ignorePolicy:true}).success,false);
+});
+
+test("Search cursors bind query and run context",async()=>{
+ const original=globalThis.fetch;const offsets:string[]=[];
+ try{
+  globalThis.fetch=async(url)=>{offsets.push(new URL(String(url)).searchParams.get('offset')!);return new Response(JSON.stringify({type:'search',query:{original:'test',more_results_available:true},web:{results:[]}}));};
+  const service=new SearchService('fixture',new Set());const page=await service.searchPage('test','owner:run:1');
+  assert.ok(page.nextCursor);
+  await assert.rejects(()=>service.searchPage('test','other-run',page.nextCursor!),/SEARCH_CURSOR_INVALID/);
+  await assert.rejects(()=>service.searchPage('changed','owner:run:1',page.nextCursor!),/SEARCH_CURSOR_INVALID/);
+  await service.searchPage('test','owner:run:1',page.nextCursor!);assert.deepEqual(offsets,['0','1']);
+ }finally{globalThis.fetch=original;}
 });

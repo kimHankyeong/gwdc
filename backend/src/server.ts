@@ -48,12 +48,15 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
   if(error instanceof ZodError)return reply.code(400).send({error:"INVALID_INPUT"});
   reply.code(500).send({error:"INTERNAL_ERROR"});
  });
- app.get("/api/health",()=>({orderMode:"SIMULATION",chainMode:"SEPOLIA_REAL",configured:{
+ app.get("/api/health",async()=>({orderMode:"SIMULATION",chainMode:"SEPOLIA_REAL",configured:{
   kiln:!!env.KILN_API_KEY,search:!!env.BRAVE_SEARCH_API_KEY,auth:Object.keys(tokens).length>0,
-  audit:!!(env.TRACK_RPC_URL&&env.TRACK_VERIFY_RPC_URL&&env.TRACK_CHAIN_PRIVATE_KEY)},notice:"Configuration is not live verification"}));
+  audit:await flow.auditReady()},capabilities:{audit:await flow.auditReady()?"VERIFIED":"UNAVAILABLE",
+  policyAdmin:!!(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='policy-admin' AND state='CONFIGURED' AND checked_at>now()-interval '60 seconds'")).rowCount},notice:"Configuration is not live verification"}));
  app.get("/api/scopes",async(req)=>(await flow.db.pool.query("SELECT id,mode,active_version FROM policy_scopes WHERE owner_id=$1",[req.owner])).rows);
  app.get<{Params:{id:string}}>("/api/policies/:id",async req=>{
-  const r=(await flow.db.pool.query("SELECT v.policy,v.digest,v.version,s.mode FROM policy_scopes s JOIN policy_versions v ON v.scope_id=s.id AND v.version=s.active_version WHERE s.id=$1 AND s.owner_id=$2",[req.params.id,req.owner])).rows[0];requireThat(r,"NOT_FOUND",404);return r;});
+  const r=(await flow.db.pool.query("SELECT v.policy,v.digest,v.version,s.mode,s.edit_id,s.edit_base,EXISTS(SELECT 1 FROM agent_runs a WHERE a.scope_id=s.id AND a.active) OR EXISTS(SELECT 1 FROM audit_jobs j WHERE j.scope_id=s.id AND j.state<>'FINALIZED') AS busy FROM policy_scopes s JOIN policy_versions v ON v.scope_id=s.id AND v.version=s.active_version WHERE s.id=$1 AND s.owner_id=$2",[req.params.id,req.owner])).rows[0];requireThat(r,"NOT_FOUND",404);
+  r.balance=(await flow.db.pool.query("SELECT currency,balance,spent,reserved FROM balances WHERE owner_id=$1 AND scope_id=$2 AND currency=$3",[req.owner,req.params.id,r.policy.currency])).rows[0]??null;return r;});
+ app.get("/api/agent/runs",async req=>(await flow.db.pool.query("SELECT id,scope_id,track,state,active,input,created_at FROM agent_runs WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 50",[req.owner])).rows);
  app.post("/api/agent/runs",async req=>flow.start(req.owner,req.body));
  app.get<{Params:{id:string}}>("/api/agent/runs/:id",async req=>flow.run(req.owner,req.params.id));
  app.post<{Params:{id:string}}>("/api/agent/runs/:id/resume",async req=>agent.resume(req.owner,req.params.id));
@@ -84,9 +87,15 @@ export async function runtime(env=process.env){
   new SearchService(env.BRAVE_SEARCH_API_KEY,new Set((env.SOURCE_ALLOWED_HOSTS??"").split(",").filter(Boolean))),policyRoot,publisher);
  const agent=new Agent(flow,new KilnClient(env));const app=createApp(flow,agent,env);
  const purchase=new PurchaseWorker(flow),audit=new AuditWorker(db,root,env);let busy=false;
+ let healthBusy=false;
+ const updateHealth=async()=>{if(healthBusy)return;healthBusy=true;try{
+  if(env.SERVICE_ROLE==="audit")await audit.readiness();
+  if(env.SERVICE_ROLE==="policy-admin")await db.pool.query("INSERT INTO service_health(name,state) VALUES('policy-admin','CONFIGURED') ON CONFLICT(name) DO UPDATE SET checked_at=now(),state='CONFIGURED'");
+ }catch{}finally{healthBusy=false;}};
+ await updateHealth();const healthTimer=setInterval(()=>void updateHealth(),20000);healthTimer.unref();
  const timer=["policy-admin","audit"].includes(env.SERVICE_ROLE??"")?null:setInterval(async()=>{if(busy)return;busy=true;try{await purchase.tick();}catch{}finally{busy=false;}},1000);
- const auditTimer=env.SERVICE_ROLE==="audit"?setInterval(()=>{void audit.tick();},5000):null;
- timer?.unref();auditTimer?.unref();app.addHook("onClose",async()=>{if(timer)clearInterval(timer);if(auditTimer)clearInterval(auditTimer);await db.close();await publisher?.close();});
+ const auditTimer=env.SERVICE_ROLE==="audit"?setInterval(()=>{void audit.tick().catch(()=>{});},5000):null;
+ timer?.unref();auditTimer?.unref();app.addHook("onClose",async()=>{clearInterval(healthTimer);if(timer)clearInterval(timer);if(auditTimer)clearInterval(auditTimer);await db.close();await publisher?.close();});
  return app;
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){

@@ -5,6 +5,7 @@ import { digest } from "./policy.js";
 export class PurchaseWorker {
  constructor(private flow:Workflow) {}
  async tick() {
+  if(!await this.flow.auditReady())return false;
   const job=await this.flow.db.tx(async c=>{
    const row=(await c.query("SELECT * FROM purchase_jobs WHERE state='PENDING' OR (state='RUNNING' AND lease_until<now()) ORDER BY intent_id FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0];
    if(!row)return null;

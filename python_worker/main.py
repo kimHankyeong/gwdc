@@ -25,6 +25,7 @@ def evaluate(req):
     if quantity!=c["quantity"]: reasons.append("QUANTITY_MISMATCH")
     if c.get("requiredName") and q["name"]!=c["requiredName"]: reasons.append("EXACT_INPUT_MISMATCH")
     merchant=q.get("merchant")
+    if (p["allowedMerchants"] or p["blockedMerchants"]) and not merchant: reasons.append("MERCHANT_EVIDENCE_MISSING")
     if p["allowedMerchants"] and merchant not in p["allowedMerchants"]: reasons.append("MERCHANT_NOT_ALLOWED")
     if merchant in p["blockedMerchants"]: reasons.append("MERCHANT_BLOCKED")
     brand=q.get("brand")

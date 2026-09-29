@@ -4,6 +4,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { load } from "cheerio";
 import ipaddr from "ipaddr.js";
 import { AppError,requireThat } from "./errors.js";
+import {boundedText} from './httpBody.js';
 export function publicAddress(address:string) {
  try { const ip=ipaddr.process(address);return ip.range()==="unicast"; }catch{return false;}
 }
@@ -60,23 +61,31 @@ export function parseProduct(html:string) {
 }
 export class SearchService {
  private active=0;
+ private cursors=new Map<string,{query:string;context:string;offset:number;expires:number}>();
  constructor(private key:string|undefined,private allowed:Set<string>) {}
- async search(query:string) {
+ configured(){return !!this.key;}
+ async search(query:string){return (await this.searchPage(query,'direct')).candidates;}
+ async searchPage(query:string,context:string,cursor?:string) {
   requireThat(this.key,"SEARCH_NOT_CONFIGURED",503);
   requireThat(query.length<=600&&query.trim().split(/\s+/).length<=75,"INVALID_QUERY",400);
   requireThat(this.active<4,"SEARCH_BUSY",429);this.active++;
   try{
-   const url=new URL("https://api.search.brave.com/res/v1/web/search");url.searchParams.set("q",query);url.searchParams.set("count","10");
+   const page=cursor?this.cursors.get(cursor):null;
+   requireThat(!cursor||(page&&page.query===query&&page.context===context&&page.expires>Date.now()),'SEARCH_CURSOR_INVALID');
+   const offset=page?.offset??0;
+   const url=new URL("https://api.search.brave.com/res/v1/web/search");url.searchParams.set("q",query);url.searchParams.set("count","10");url.searchParams.set('offset',String(offset));url.searchParams.set('country','KR');url.searchParams.set('search_lang','ko');
    let result:any;
    for(let attempt=0;attempt<3;attempt++){
     const response=await fetch(url,{headers:{"X-Subscription-Token":this.key!,Accept:"application/json"},signal:AbortSignal.timeout(10000)});
     if(response.status===401||response.status===403)throw new AppError("SEARCH_NOT_CONFIGURED",503);
     if((response.status===429||response.status>=500)&&attempt<2){await new Promise(r=>setTimeout(r,300*(attempt+1)));continue;}
     requireThat(response.ok,"SEARCH_UNAVAILABLE",503);
-    const text=await response.text();requireThat(text.length<2*1024*1024,"SEARCH_RESPONSE_TOO_LARGE");
-    result=JSON.parse(text);break;
+    const text=await boundedText(response,2*1024*1024,"SEARCH_RESPONSE_TOO_LARGE");
+    try{result=JSON.parse(text);}catch{throw new AppError('SEARCH_INVALID_RESPONSE');}break;
    }
-   requireThat(result&&(!result.web||Array.isArray(result.web.results)),"SEARCH_INVALID_RESPONSE");
+   requireThat(result&&result.type==="search"&&result.query&&typeof result.query.original==="string"&&
+    (result.web===undefined||Array.isArray(result.web.results)),"SEARCH_INVALID_RESPONSE");
+   requireThat((result.web?.results??[]).every((v:any)=>v&&typeof v.url==="string"&&typeof v.title==="string"),"SEARCH_INVALID_RESPONSE");
    const candidates=[];
    for(const item of (result.web?.results??[]).slice(0,20)){
     if(typeof item.url!=="string"||typeof item.title!=="string")continue;
@@ -89,7 +98,13 @@ export class SearchService {
     }catch(e){c.sourceError=e instanceof AppError?e.code:"SOURCE_UNAVAILABLE";}
     candidates.push(c);
    }
-   return candidates;
+   let nextCursor:string|null=null;
+   if(result.query.more_results_available===true&&offset<9){
+    for(const [k,v] of this.cursors)if(v.expires<Date.now())this.cursors.delete(k);
+    if(this.cursors.size>=1000)this.cursors.delete(this.cursors.keys().next().value!);
+    nextCursor=randomUUID();this.cursors.set(nextCursor,{query,context,offset:offset+1,expires:Date.now()+300000});
+   }
+   return {candidates,nextCursor};
   }finally{this.active--;}
  }
 }

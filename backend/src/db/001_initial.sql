@@ -72,6 +72,10 @@ CREATE TABLE IF NOT EXISTS audit_jobs (
  next_attempt timestamptz NOT NULL DEFAULT now(), source_mode text NOT NULL DEFAULT 'SIMULATION' CHECK(source_mode='SIMULATION')
 );
 CREATE INDEX IF NOT EXISTS unresolved_audits ON audit_jobs(scope_id) WHERE state <> 'FINALIZED';
+CREATE TABLE IF NOT EXISTS service_health (
+ name text PRIMARY KEY, state text NOT NULL, checked_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS error_code text;
 CREATE OR REPLACE FUNCTION forbid_published_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN RAISE EXCEPTION 'IMMUTABLE_RECORD'; END $$;
 DROP TRIGGER IF EXISTS immutable_policy ON policy_versions;

@@ -12,6 +12,9 @@ import { SearchService } from "./search.js";
 export class Workflow {
  constructor(readonly db:Database,readonly cache:PolicyCache,readonly python:PythonEvaluator,
   readonly search:SearchService,readonly policyRoot:string,readonly publisher:Database|null) {}
+ async auditReady(client:any=this.db.pool) {
+  return !!(await client.query("SELECT 1 FROM service_health WHERE name='audit' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount;
+ }
  async ownedRun(c:PoolClient,id:string,owner:string,lock=false) {
   const r=(await c.query("SELECT * FROM agent_runs WHERE id=$1 AND owner_id=$2"+(lock?" FOR UPDATE":""),[id,owner])).rows[0];
   requireThat(r,"NOT_FOUND",404);return r;
@@ -23,7 +26,7 @@ export class Workflow {
  async run(owner:string,id:string) {
   return this.db.tx(async c=>{const r=await this.ownedRun(c,id,owner);
    const candidates=(await c.query("SELECT id,data FROM candidates WHERE run_id=$1",[id])).rows;
-   const intents=(await c.query("SELECT id,state,quote,quote_version,generation,approval FROM purchase_intents WHERE run_id=$1",[id])).rows;
+   const intents=(await c.query("SELECT id,state,quote,quote_version,generation,approval,expires_at FROM purchase_intents WHERE run_id=$1",[id])).rows;
    const evaluations=(await c.query("SELECT id,kind,result FROM evaluations WHERE run_id=$1 AND constraint_version=$2",[id,r.constraint_version])).rows;
    const receipts=(await c.query("SELECT rc.id,rc.mode,a.state AS audit_state FROM receipts rc JOIN purchase_intents pi ON pi.id=rc.intent_id LEFT JOIN audit_jobs a ON a.receipt_id=rc.id WHERE pi.run_id=$1",[id])).rows;
    return {...r,candidates,intents,evaluations,receipts};});
@@ -64,7 +67,7 @@ export class Workflow {
      // User-only simulation inputs cannot be supplied by any LLM tool.
      await c.query("UPDATE agent_runs SET input=$2,input_version=input_version+1,question=NULL,constraint_approval=NULL WHERE id=$1",[id,input]);
     }
-    await c.query("UPDATE agent_runs SET state='READY',version=version+1 WHERE id=$1",[id]);
+    await c.query("UPDATE agent_runs SET state='READY',error_code=NULL,version=version+1 WHERE id=$1",[id]);
    }
    await c.query("INSERT INTO run_events VALUES($1,$2,$3)",[id,event.eventId,digest(event)]);
    return {state:event.type==="CANCEL"?"CANCELED":"READY"};
@@ -94,7 +97,7 @@ export class Workflow {
   requireThat(sim&&sim.candidateId===candidateId,"SIMULATION_INPUT_REQUIRED");
   requireThat(/^(0|[1-9][0-9]{0,14})$/.test(sim.unitPrice)&&/^(0|[1-9][0-9]{0,14})$/.test(sim.shipping),"INVALID_AMOUNT");
   return {candidateId,name:f.name??candidate.name,quantity,unitPrice:sim.unitPrice,shipping:sim.shipping,
-   currency:p.currency,merchant:f.merchant??new URL(candidate.url).hostname,brand:f.brand??null,rating:f.rating??null,
+   currency:p.currency,merchant:sourceMerchant(candidate),brand:f.brand??null,rating:f.rating??null,
    sourceUrl:candidate.url,sourceId:candidate.sourceId,fetchedAt:candidate.fetchedAt,
    amountEvidence:"SIMULATION_INPUT",observedPrice:f.observedPrice??null,mode:"SIMULATION"};
  }
@@ -131,8 +134,8 @@ export class Workflow {
    const initial=(await c.query("SELECT * FROM purchase_intents WHERE id=$1 AND owner_id=$2",[id,owner])).rows[0];requireThat(initial,"NOT_FOUND",404);
    await this.gate(c,initial.scope_id);
    const it=(await c.query("SELECT * FROM purchase_intents WHERE id=$1 FOR UPDATE",[id])).rows[0];
-   requireThat(it.state==="NEEDS_RECONFIRMATION","INVALID_STAGE");
-   await c.query("UPDATE purchase_intents SET quote_version=quote_version+1,approval=NULL,expires_at=now()+interval '5 minutes' WHERE id=$1",[id]);
+   requireThat(it.state==="NEEDS_RECONFIRMATION"||(['NEEDS_APPROVAL','READY_FOR_TOOL'].includes(it.state)&&new Date(it.expires_at).getTime()<=Date.now()),"INVALID_STAGE");
+   await c.query("UPDATE purchase_intents SET state='NEEDS_RECONFIRMATION',quote_version=quote_version+1,approval=NULL,expires_at=now()+interval '5 minutes' WHERE id=$1",[id]);
    return {quote:it.quote,quoteVersion:it.quote_version+1,generation:it.generation,mode:"SIMULATION"};
   });
  }
@@ -175,4 +178,9 @@ export class Workflow {
   const r=await this.publisher.pool.query("UPDATE policy_scopes SET mode='NORMAL',edit_id=NULL,edit_base=NULL,edit_owner=NULL WHERE id=$1 AND owner_id=$2 AND edit_id=$3 AND mode='POLICY_EDIT' RETURNING id",[scope,owner,editId]);
   requireThat(r.rowCount,"INVALID_EDIT_SESSION");return {state:"NORMAL"};
  }
+}
+// A page's seller display name is never an authenticated merchant identifier.
+// Marketplace seller identity needs a dedicated verified adapter; unknown stays null.
+export function sourceMerchant(candidate:any):string|null {
+ return candidate.verifiedMerchantHost??null;
 }

@@ -1,15 +1,65 @@
 {
-  "generated": "2026-09-28T11:02:54.1455703Z",
+  "generated": "2026-09-29T08:01:34.159334+00:00",
   "sections": [
     {
       "id": "mockups",
       "label": "Mockups",
-      "groups": []
+      "groups": [
+        {
+          "slug": "purchase-workspace",
+          "label": "purchase-workspace",
+          "files": [
+            {
+              "label": "history.html",
+              "path": "mockups/purchase-workspace/history.html"
+            },
+            {
+              "label": "policy.html",
+              "path": "mockups/purchase-workspace/policy.html"
+            },
+            {
+              "label": "purchase.html",
+              "path": "mockups/purchase-workspace/purchase.html"
+            }
+          ]
+        }
+      ]
     },
     {
       "id": "design-systems",
       "label": "Design Systems",
-      "groups": [{"id":"franchise-procurement","label":"Franchise Procurement","path":"design-systems/franchise-procurement"}]
+      "groups": [
+        {
+          "slug": "franchise-procurement",
+          "label": "franchise-procurement",
+          "files": [
+            {
+              "label": "brand/style-notes.md",
+              "path": "design-systems/franchise-procurement/brand/style-notes.md"
+            },
+            {
+              "label": "brand/voice-and-tone.md",
+              "path": "design-systems/franchise-procurement/brand/voice-and-tone.md"
+            },
+            {
+              "label": "README.md",
+              "path": "design-systems/franchise-procurement/README.md"
+            },
+            {
+              "label": "SKILL.md",
+              "path": "design-systems/franchise-procurement/SKILL.md"
+            },
+            {
+              "label": "tokens/colors_and_type.css",
+              "path": "design-systems/franchise-procurement/tokens/colors_and_type.css"
+            },
+            {
+              "label": "ui-kit-franchise-procurement/index.html",
+              "path": "design-systems/franchise-procurement/ui-kit-franchise-procurement/index.html"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

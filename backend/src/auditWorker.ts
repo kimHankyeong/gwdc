@@ -3,10 +3,28 @@ import { pathToFileURL } from "node:url";
 import { Database } from "./db.js";
 import { digest } from "./policy.js";
 import { requireThat } from "./errors.js";
+import { JsonRpcProvider,Wallet,parseEther } from "ethers";
 export class AuditWorker {
  private running=false;
  constructor(private db:Database,private root:string,private env:NodeJS.ProcessEnv) {}
  configured(){return !!(this.env.TRACK_RPC_URL&&this.env.TRACK_VERIFY_RPC_URL&&this.env.TRACK_CHAIN_PRIVATE_KEY);}
+ async readiness(){
+  let state="UNAVAILABLE";
+  const providers:JsonRpcProvider[]=[];
+  try {
+   requireThat(this.configured(),"AUDIT_NOT_READY");
+   const urls=[new URL(this.env.TRACK_RPC_URL!),new URL(this.env.TRACK_VERIFY_RPC_URL!)];
+   requireThat(urls.every(u=>u.protocol==="https:")&&urls[0].hostname!==urls[1].hostname,"AUDIT_NOT_READY");
+   const signer=new Wallet(this.env.TRACK_CHAIN_PRIVATE_KEY!);
+   urls.forEach(u=>providers.push(new JsonRpcProvider(u.href)));
+   await Promise.race([Promise.all(providers.map(async p=>{
+    requireThat((await p.getNetwork()).chainId===11155111n,"WRONG_CHAIN");
+    requireThat(await p.getBalance(signer.address)>=parseEther("0.004"),"INSUFFICIENT_TEST_ETH");
+   })),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(Error("RPC_TIMEOUT")),8000);timer.unref();})]);
+   state="VERIFIED";
+  }catch{}finally{providers.forEach(p=>p.destroy());}
+  await this.db.pool.query("INSERT INTO service_health(name,state) VALUES('audit',$1) ON CONFLICT(name) DO UPDATE SET state=$1,checked_at=now()",[state]);
+ }
  async tick(){
   if(this.running||!this.configured())return false;this.running=true;
   try {
