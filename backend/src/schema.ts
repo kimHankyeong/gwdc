@@ -21,6 +21,7 @@ export type Policy = z.infer<typeof policySchema>;
 export type Constraints = z.infer<typeof constraintsSchema>;
 export const startSchema = z.object({
  scopeId:id, track:z.enum(["Plan","HardInput"]),
+ autoPurchase:z.boolean().default(false),
  input:z.object({query:z.string().min(1).max(600),maxTotal:money.optional(),
  quantity:z.number().int().min(1).max(100000).optional(),requiredName:z.string().max(300).optional()}).strict()
 }).strict();

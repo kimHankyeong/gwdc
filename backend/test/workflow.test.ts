@@ -127,13 +127,31 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  assert.equal((await db.pool.query("SELECT count(*) FROM purchase_jobs WHERE intent_id=$1 AND state='PENDING'",[next.data.intentId])).rows[0].count,"0");
  await agent.execute("alice",second.runId,"execute_purchase",{intentId:next.data.intentId});await worker.tick();
  assert.equal((await db.pool.query("SELECT spent FROM balances")).rows[0].spent,"2000");
+ await assert.rejects(()=>flow.start("alice",{scopeId:"scope",track:"Plan",autoPurchase:true,input:{query:"상품",maxTotal:"3000",quantity:1,requiredName:"상품"}}),/AUTO_PURCHASE_REQUIRES_FIXED_LIMITS/);
+ await assert.rejects(()=>flow.start("alice",{scopeId:"scope",track:"HardInput",autoPurchase:true,input:{query:"상품",maxTotal:"3000",quantity:1}}),/AUTO_PURCHASE_REQUIRES_FIXED_LIMITS/);
+ const automatic=await flow.start("alice",{scopeId:"scope",track:"HardInput",autoPurchase:true,input:{query:"상품",maxTotal:"3000",quantity:1,requiredName:"상품"}});
+ await agent.execute("alice",automatic.runId,"propose_purchase_constraints",{baseVersion:0,constraints:{query:"상품",maxTotal:"3000",quantity:1,requiredName:"상품",excludedBrands:[]}});
+ await db.pool.query("INSERT INTO candidates VALUES('candidate-auto',$1,$2)",[automatic.runId,{id:"candidate-auto",name:"상품",url:"https://example.com/auto",sourceId:"source-auto",fetchedAt:new Date().toISOString(),evidenceType:"HTML_OBSERVATION",contentHash:"c".repeat(64),verifiedMerchantHost:"example.com",fields:{name:"상품",observedPrice:"1000",currency:"KRW",observedShipping:"0",shippingCurrency:"KRW"}}]);
+ await db.pool.query("UPDATE owner_wallets SET funded_at=NULL,funding_checked_at=NULL WHERE owner_id='alice'");
+ await db.pool.query("INSERT INTO service_health(name,state) VALUES('audit-relayer','VERIFIED')");
+ assert.equal(await flow.auditReady(db.pool,"alice"),true);
+ const autoEvaluated=await agent.execute("alice",automatic.runId,"evaluate_policy",{constraintVersion:1,candidateIds:["candidate-auto"]});
+ assert.deepEqual(autoEvaluated.data.permittedOrder,["candidate-auto"]);
+ assert.equal(autoEvaluated.data.state,"PROCESSING");
+ assert.equal((await flow.run("alice",automatic.runId)).constraint_approval.source,"AUTO");
+ const autoIntentId=autoEvaluated.data.intentId;
+ assert.equal((await db.pool.query("SELECT count(*) FROM purchase_jobs WHERE intent_id=$1",[autoIntentId])).rows[0].count,"1");
+ await worker.tick();
+ assert.equal((await db.pool.query("SELECT spent,reserved FROM balances")).rows[0].spent,"3000");
+ assert.equal((await db.pool.query("SELECT count(*) FROM receipts WHERE owner_id='alice'")).rows[0].count,"3");
+ assert.equal((await db.pool.query("SELECT count(*) FROM purchase_jobs WHERE intent_id=$1",[autoIntentId])).rows[0].count,"1");
  await assert.rejects(()=>db!.pool.query("UPDATE policy_versions SET digest='tampered'"),/IMMUTABLE_RECORD/);
  const third=await flow.start("alice",{scopeId:"scope",track:"Plan",input:{query:"취소 테스트"}});
  await flow.event("alice",third.runId,{eventId:"cancel3",expectedVersion:1,type:"CANCEL",payload:{}});
  assert.equal((await flow.run("alice",third.runId)).active,false);
  // Explicit test fixture: emulate completion of the external audit, not network evidence.
  await db.pool.query("UPDATE audit_jobs SET state='FINALIZED'");
- await db.pool.query("UPDATE agent_runs SET active=false WHERE id=ANY($1::text[])",[[started.runId,second.runId]]);
+ await db.pool.query("UPDATE agent_runs SET active=false WHERE id=ANY($1::text[])",[[started.runId,second.runId,automatic.runId]]);
  const race=await Promise.allSettled([flow.enterPolicyEdit("alice","scope"),flow.start("alice",{scopeId:"scope",track:"Plan",input:{query:"경합"}})]);
  assert.equal(race.filter(r=>r.status==="fulfilled").length,1);
  }finally{

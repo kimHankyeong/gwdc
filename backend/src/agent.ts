@@ -42,7 +42,7 @@ export class Agent {
    const initial=await this.flow.run(owner,runId);requireThat(initial.active,"RUN_CLOSED");
    requireThat(['READY','CONSTRAINTS_DRAFT','ACTION_REQUIRED'].includes(initial.state),'INVALID_STAGE');
    await this.flow.db.pool.query("UPDATE agent_runs SET error_code=NULL WHERE id=$1",[runId]);
-   const messages:any[]=[{role:"user",content:JSON.stringify({track:initial.track,input:initial.input,state:initial.state,
+   const messages:any[]=[{role:"user",content:JSON.stringify({track:initial.track,input:initial.input,autoPurchase:initial.auto_purchase,state:initial.state,
     constraints:initial.constraints,constraintVersion:initial.constraint_version,inputVersion:initial.input_version,
     candidates:initial.candidates,intents:initial.intents,receipts:initial.receipts,
     constraintApproval:initial.constraint_approval,evaluations:initial.evaluations,question:initial.question})}];
@@ -112,7 +112,7 @@ export class Agent {
     return {status:"OK",data:{candidates,nextCursor}};
    });
   }
-  return this.flow.db.tx(async c=>{
+  const result:any=await this.flow.db.tx(async c=>{
    await this.flow.gate(c,initial.scope_id);
    const r=await this.flow.ownedRun(c,runId,owner,true);requireThat(r.active,"RUN_CLOSED");
    requireThat(!stages[name]||stages[name].includes(r.state),"INVALID_STAGE");
@@ -154,23 +154,32 @@ export class Agent {
     for(const candidateId of args.candidateIds){
      const quote=await this.flow.quote(c,r,candidateId,r.constraints.quantity);
      const result=await this.flow.evaluate(c,r,quote),id=randomUUID();
-     await c.query("INSERT INTO evaluations VALUES($1,$2,$3,$4,'EVALUATION',$5,$6)",[id,runId,r.constraint_version,r.policy_digest,result,result.inputDigest]);
+     await c.query("INSERT INTO evaluations VALUES($1,$2,$3,$4,'EVALUATION',$5,$6)",[id,runId,r.constraint_version,r.policy_digest,{...result,candidateId},result.inputDigest]);
      results.push({id,candidateId,rating:quote.rating,...result});
     }
     const rank=await this.flow.python.evaluate({operation:"rank",policy:p,results,
       policyDigest:r.policy_digest,inputDigest:digest(results)});
+    if(r.auto_purchase&&rank.candidateIds.length&&r.track==="HardInput"){
+     requireThat(r.constraints.query===r.input.query&&r.constraints.quantity===r.input.quantity&&r.constraints.maxTotal===r.input.maxTotal&&r.constraints.requiredName===r.input.requiredName,"EXACT_INPUT_MISMATCH");
+     await c.query("UPDATE agent_runs SET constraint_approval=$2,state='READY',version=version+1 WHERE id=$1",[runId,{version:r.constraint_version,policyDigest:r.policy_digest,evidenceIds:results.filter(x=>x.allowed).map(x=>x.id),source:"AUTO"}]);
+    }
     return {status:"OK",data:{evaluations:results,permittedOrder:rank.candidateIds}};
    }
    if(name==="prepare_purchase"){
     requireThat(await this.flow.auditReady(c,owner),"AUDIT_NOT_READY",503);
     requireThat(r.constraint_approval?.version===r.constraint_version,"CONSTRAINT_APPROVAL_REQUIRED");
+    if(r.auto_purchase){
+     requireThat(r.track==="HardInput"&&r.constraint_approval?.source==="AUTO"&&args.quantity===r.input.quantity,"AUTO_PURCHASE_LIMIT_MISMATCH");
+     const evaluated=(await c.query("SELECT 1 FROM evaluations WHERE run_id=$1 AND constraint_version=$2 AND policy_digest=$3 AND kind='EVALUATION' AND result->>'candidateId'=$4 AND result->>'allowed'='true' LIMIT 1",[runId,r.constraint_version,r.policy_digest,args.candidateId])).rowCount;
+     requireThat(!!evaluated,"EVALUATION_REQUIRED");
+    }
     requireThat(p.currency==="KRW"&&p.minorDigits===0&&p.minimumReviewScore===null,"AUDIT_UNSUPPORTED");
     const quote=await this.flow.quote(c,r,args.candidateId,args.quantity);
     const result=await this.flow.evaluate(c,r,quote);requireThat(result.allowed,result.reasonCodes[0]??"POLICY_REJECTED");
     quote.total=result.total;
     const key=digest({runId,constraints:r.constraint_version,quote});
     const old=(await c.query("SELECT * FROM purchase_intents WHERE prepare_key=$1",[key])).rows[0];
-    if(old)return {status:"NEEDS_APPROVAL",data:{intentId:old.id,quote:old.quote,quoteVersion:old.quote_version,generation:old.generation}};
+    if(old)return {status:old.state==="PROCESSING"||old.state==="COMMITTED"?"OK":"NEEDS_APPROVAL",data:{intentId:old.id,quote:old.quote,quoteVersion:old.quote_version,generation:old.generation,state:old.state}};
     requireThat(!(await c.query("SELECT 1 FROM purchase_intents WHERE run_id=$1 AND state NOT IN ('CANCELED','REJECTED')",[runId])).rowCount,"INTENT_ALREADY_EXISTS");
     const salt=()=>"0x"+randomBytes(32).toString("hex");
     const auditInput={policy:{version:1,maxBudget:Number(p.maxBudget),reviewRequired:false,reviewMinimum:0,reviewRatingMinimum:0,salt:salt()},
@@ -178,9 +187,17 @@ export class Agent {
     requireThat(Object.values(auditInput.record).filter(v=>typeof v==="number").every(Number.isSafeInteger)&&Number.isSafeInteger(auditInput.policy.maxBudget),"AUDIT_UNSUPPORTED");
     await validateAuditPayload(auditInput);
     const id=randomUUID();
-    await c.query("INSERT INTO purchase_intents(id,run_id,owner_id,scope_id,prepare_key,policy_version,policy_digest,constraint_version,quote,expires_at,state,audit_input) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+interval '5 minutes','NEEDS_APPROVAL',$10)",[id,runId,owner,r.scope_id,key,r.policy_version,r.policy_digest,r.constraint_version,quote,auditInput]);
-    await c.query("UPDATE agent_runs SET state='NEEDS_APPROVAL',version=version+1 WHERE id=$1",[runId]);
-    return {status:"NEEDS_APPROVAL",data:{intentId:id,quote,quoteVersion:1,generation:1}};
+    if(r.auto_purchase){
+     requireThat(BigInt(result.total)<=BigInt(r.input.maxTotal),"AUTO_PURCHASE_LIMIT_MISMATCH");
+     const reserved=await c.query("UPDATE balances SET reserved=reserved+$1 WHERE owner_id=$2 AND scope_id=$3 AND currency=$4 AND reserved+$1<=balance RETURNING reserved",[result.total,owner,r.scope_id,quote.currency]);
+     requireThat(!!reserved.rowCount,"SIMULATION_BALANCE_EXCEEDED");
+    }
+    const state=r.auto_purchase?"PROCESSING":"NEEDS_APPROVAL";
+    const approval=r.auto_purchase?{quoteVersion:1,generation:1,mode:"SIMULATION",source:"AUTO",consentRunId:runId}:null;
+    await c.query("INSERT INTO purchase_intents(id,run_id,owner_id,scope_id,prepare_key,policy_version,policy_digest,constraint_version,quote,expires_at,state,audit_input,approval,reserved) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now()+interval '5 minutes',$10,$11,$12,$13)",[id,runId,owner,r.scope_id,key,r.policy_version,r.policy_digest,r.constraint_version,quote,state,auditInput,approval,r.auto_purchase?result.total:"0"]);
+    if(r.auto_purchase)await c.query("INSERT INTO purchase_jobs(intent_id,generation) VALUES($1,1)",[id]);
+    await c.query("UPDATE agent_runs SET state=$2,version=version+1 WHERE id=$1",[runId,state]);
+    return {status:r.auto_purchase?"OK":"NEEDS_APPROVAL",data:{intentId:id,quote,quoteVersion:1,generation:1,state}};
    }
    if(name==="execute_purchase"){
     const it=(await c.query("SELECT * FROM purchase_intents WHERE id=$1 AND run_id=$2 AND owner_id=$3 FOR UPDATE",[args.intentId,runId,owner])).rows[0];
@@ -202,5 +219,11 @@ export class Agent {
    }
    throw new AppError("TOOL_UNAVAILABLE");
   });
+  if(name==="evaluate_policy"&&initial.auto_purchase&&result.data?.permittedOrder?.length){
+   const first=result.data.permittedOrder[0];
+   const prepared=await this.dispatch(owner,runId,"prepare_purchase",{constraintVersion:initial.constraint_version,candidateId:first,quantity:initial.input.quantity});
+   return {...result,data:{...result.data,state:prepared.data.state,intentId:prepared.data.intentId}};
+  }
+  return result;
  }
 }

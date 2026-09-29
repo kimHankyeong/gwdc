@@ -32,6 +32,7 @@ export class Workflow {
  }
  async auditReady(client:any=this.db.pool,owner?:string) {
   if(!(await client.query("SELECT 1 FROM service_health WHERE name='audit' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount)return false;
+  if((await client.query("SELECT 1 FROM service_health WHERE name='audit-relayer' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount)return true;
   return !owner||!!(await client.query("SELECT 1 FROM owner_wallets WHERE owner_id=$1 AND funded_at>now()-interval '5 minutes' AND funding_checked_at>now()-interval '5 minutes'",[owner])).rowCount;
  }
  async ownedRun(c:PoolClient,id:string,owner:string,lock=false) {
@@ -52,11 +53,12 @@ export class Workflow {
  }
  async start(owner:string,raw:unknown) {
   const a=startSchema.parse(raw);
+  requireThat(!a.autoPurchase||(a.track==="HardInput"&&!!a.input.maxTotal&&!!a.input.quantity&&!!a.input.requiredName?.trim()),"AUTO_PURCHASE_REQUIRES_FIXED_LIMITS");
   return this.db.tx(async c=>{
    const p=await this.gate(c,a.scopeId);requireThat(p.owner_id===owner,"NOT_FOUND",404);
    const v=(await c.query("SELECT * FROM policy_versions WHERE scope_id=$1 AND version=$2",[p.id,p.active_version])).rows[0];
    await this.cache.load(p.id,v.version,v.digest);
-   const id=randomUUID();await c.query("INSERT INTO agent_runs(id,owner_id,scope_id,policy_version,policy_digest,track,input,state) VALUES($1,$2,$3,$4,$5,$6,$7,'READY')",[id,owner,p.id,v.version,v.digest,a.track,a.input]);
+   const id=randomUUID();await c.query("INSERT INTO agent_runs(id,owner_id,scope_id,policy_version,policy_digest,track,input,auto_purchase,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'READY')",[id,owner,p.id,v.version,v.digest,a.track,a.input,a.autoPurchase]);
    return {runId:id,state:"READY"};
   });
  }
@@ -83,7 +85,8 @@ export class Workflow {
     if(event.type==="ANSWER"){
      input={...input,...event.payload};
      requireThat(!Object.keys(event.payload).some(k=>!["query","maxTotal","quantity","requiredName"].includes(k)),"INVALID_ANSWER");
-     await c.query("UPDATE agent_runs SET input=$2,input_version=input_version+1,question=NULL,constraint_approval=NULL WHERE id=$1",[id,input]);
+     // Editing the request voids the original auto-purchase consent.
+     await c.query("UPDATE agent_runs SET input=$2,input_version=input_version+1,question=NULL,constraint_approval=NULL,auto_purchase=false WHERE id=$1",[id,input]);
     }
     await c.query("UPDATE agent_runs SET state='READY',error_code=NULL,version=version+1 WHERE id=$1",[id]);
    }

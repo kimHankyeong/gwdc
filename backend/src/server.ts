@@ -53,7 +53,7 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
   if(error instanceof ZodError)return reply.code(400).send({error:"INVALID_INPUT"});
   reply.code(500).send({error:"INTERNAL_ERROR"});
  });
- app.get("/api/health",async()=>({orderMode:"SIMULATION",chainMode:"SEPOLIA_REAL",configured:{
+ app.get("/api/health",async()=>({orderMode:"SIMULATION",chainMode:"SEPOLIA_REAL",gasMode:(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='audit-relayer' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount?"RELAYED":await flow.auditReady()?"PERSONAL":"UNAVAILABLE",configured:{
   kiln:!!env.KILN_API_KEY,search:!!env.SEARCH_API_URL,auth:env.AUTH_MODE==='supabase'||Object.keys(tokens).length>0,
   audit:await flow.auditReady()},capabilities:{audit:await flow.auditReady()?"VERIFIED":"UNAVAILABLE",
   policyAdmin:env.POLICY_SERVERLESS==='1'||!!(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='policy-admin' AND state='CONFIGURED' AND checked_at>now()-interval '60 seconds'")).rowCount},notice:"Configuration is not live verification"}));

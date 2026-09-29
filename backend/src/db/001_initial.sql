@@ -12,7 +12,7 @@ ALTER TABLE policy_scopes ADD COLUMN IF NOT EXISTS lock_marker integer NOT NULL 
 CREATE TABLE IF NOT EXISTS agent_runs (
  id text PRIMARY KEY, owner_id text NOT NULL, scope_id text NOT NULL REFERENCES policy_scopes(id),
  policy_version integer NOT NULL, policy_digest text NOT NULL, track text NOT NULL CHECK(track IN ('Plan','HardInput')),
- input jsonb NOT NULL, input_version integer NOT NULL DEFAULT 1, state text NOT NULL,
+ input jsonb NOT NULL, input_version integer NOT NULL DEFAULT 1, auto_purchase boolean NOT NULL DEFAULT false, state text NOT NULL,
  active boolean NOT NULL DEFAULT true, version integer NOT NULL DEFAULT 1,
  constraints jsonb, constraint_version integer NOT NULL DEFAULT 0, constraint_approval jsonb,
  question jsonb, created_at timestamptz NOT NULL DEFAULT now()

@@ -82,9 +82,11 @@ Kiln 요청마다 전체 정책을 고정 prefix로 포함합니다. 앱의 READ
 - 원본 v1: KRW 정수·단일 품목·수량×단가+배송비·reviewRequired=false만 지원합니다. 다른 정책은 주문 실행 전 반려합니다.
 - 모의 주문 영수증의 고정 salts/requestId/purchaseId를 사용합니다. 전체 정책 digest와 v1 policyHash는 다릅니다.
 - 같은 저장소 원본 `validatePayloads`, `hashPayload`, `executeTransaction`, AuditRecord ABI를 재사용합니다.
-- `SERVICE_ROLE=audit`인 **상시 signer 호스트**에만 `TRACK_RPC_URL`, `TRACK_VERIFY_RPC_URL`, 32바이트 hex `WALLET_MASTER_KEY`를 설정합니다. 사용자별 Sepolia 키는 이 호스트에서 생성해 AES-256-GCM으로 암호화 보관하며, API는 주소만 읽습니다. 각 사용자 지갑에 테스트 ETH가 확인되기 전에는 감사 실행을 차단합니다. 키 원문과 master key를 Vercel 프런트·일반 에이전트에 전달하지 마세요.
+- `SERVICE_ROLE=audit`인 **상시 signer 호스트**에만 `TRACK_RPC_URL`, `TRACK_VERIFY_RPC_URL`, 32바이트 hex `WALLET_MASTER_KEY`를 설정합니다. 사용자별 Sepolia 키는 이 호스트에서 생성해 AES-256-GCM으로 암호화 보관하며, API는 주소만 읽습니다. 기본 `AUDIT_GAS_MODE=personal`은 각 사용자 지갑의 테스트 ETH를 요구합니다. `AUDIT_GAS_MODE=relayer`에서는 같은 호스트에 `AUDIT_RELAYER_PRIVATE_KEY`를 추가하고 서비스 지갑 잔액을 두 RPC에서 확인합니다. 이때 감사 거래의 온체인 송신자는 서비스 지갑이며 사용자별 영수증은 DB의 `owner_id`로 격리됩니다. 비밀키와 master key를 Vercel 프런트·일반 에이전트에 전달하지 마세요.
 - `npm run build -w sepolia-audit-boilerplate`로 원본 계약을 컴파일합니다.
 - 최초 요청마다 계약 배포 + recordPurchase, 재시도는 동일 체크포인트와 서명을 복구합니다. state/evidence와 백업을 보호하고 임의 삭제하지 마세요.
+- 릴레이어는 모든 사용자의 nonce를 공유하므로 DB advisory lock으로 동시 실행을 직렬화합니다. 체크포인트는 파일이므로 감사 워커는 **영구 디스크가 있는 단일 호스트**로 운영하고 복구 가능한 백업을 유지해야 합니다. Vercel Functions만으로는 상시 감사 워커가 되지 않습니다.
+- 자동 모의 주문은 요청 생성 시 명시적으로 켠 `HardInput`에만 적용됩니다. 최대 금액·수량·정확한 상품명을 필수로 받아 서버가 검색 근거와 정책을 재평가한 뒤 한 건만 작업 큐에 넣습니다. 요청 내용을 변경하면 자동 동의가 해제됩니다. 실제 상품 주문·결제는 하지 않습니다. 기존 DB에는 `backend/src/db/006_auto_purchase.sql`을 선적용해야 합니다.
 - HMAC은 원본처럼 signer 개인키에서 용도별 파생되며 암호화가 아닙니다.
 - 실제 receipt status=1·이벤트·두 RPC가 일치해야 verified, finalized 확인 전에는 완료가 아닙니다.
 - 실제 주문/모의 여부 필드는 원본 ABI에 없으므로 체인만으로 실구매·모의 여부를 증명하지 않습니다.
@@ -115,7 +117,7 @@ PostgreSQL 통합 검사는 npm 패키지의 별도 테스트 클러스터를 lo
 - 구매 계획·정책 관리·모의 주문 기록을 TypeScript로 재설계했습니다. 후보 선택과 승인을 폼으로 제공하며 raw JSON/ID 입력을 요구하지 않습니다.
 - `opendesign/mockups/purchase-workspace/`의 3개 HTML은 정적 디자인 자료입니다. 실행 화면은 Vite의 5173 포트입니다.
 - 기존 DB도 `npm run migrate` 및 DB 소유자로 `backend/src/db/002_roles.sql` 재적용이 필요합니다. `service_health`와 오류 코드 열이 추가됩니다.
-- 별도 감사 프로세스가 두 HTTPS Sepolia RPC의 체인 ID와 signer 테스트 잔액(각 0.004 ETH 이상)을 검증해 20초마다 heartbeat를 남깁니다. 60초 이내 VERIFIED가 없으면 견적 준비·주문 실행·Worker 차감이 차단됩니다. 준비 확인 이후 장애가 나면 감사 완료를 보장하지는 않으며 작업은 복구 대기합니다.
+- 별도 감사 프로세스가 두 HTTPS Sepolia RPC의 체인 ID와 가스 지불 지갑의 테스트 잔액(각 조회에서 0.004 ETH 이상)을 검증해 20초마다 heartbeat를 남깁니다. 60초 이내 VERIFIED가 없으면 견적 준비·주문 실행·Worker 차감이 차단됩니다. 준비 확인 이후 장애가 나면 감사 완료를 보장하지는 않으며 작업은 복구 대기합니다.
 - HTML의 판매처 표시명은 신원 증거가 아닙니다. 검증된 판매처 adapter가 없는 현재, 판매처 제한 정책은 MERCHANT_EVIDENCE_MISSING으로 차단됩니다.
 - 검증 결과와 연결 한계: [재설계 QA](docs/QA-REDESIGN-2026-09-29.md).
 
