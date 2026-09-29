@@ -23,3 +23,28 @@ describe("AuditRecord", function () {
   });
 });
 
+
+// 소유권 교체와 비상 중지는 외부 호출자에게 허용하지 않습니다.
+describe("AuditRecord administration", function () {
+  it("pauses writes and transfers ownership only after acceptance", async function () {
+    const { ethers } = await network.connect();
+    const [owner, nextOwner, outsider] = await ethers.getSigners();
+    const book = await ethers.deployContract("AuditRecord");
+    const args = [ethers.id("request"), ethers.id("policy"), ethers.id("record")];
+    await assert.rejects(book.connect(outsider).setPaused(true), /Unauthorized/);
+    await assert.rejects(book.connect(outsider).transferOwnership(nextOwner.address), /Unauthorized/);
+    await assert.rejects(book.transferOwnership(ethers.ZeroAddress), /InvalidOwner/);
+    await (await book.setPaused(true)).wait();
+    await assert.rejects(book.recordPurchase(...args), /Paused/);
+    await (await book.transferOwnership(nextOwner.address)).wait();
+    assert.equal(await book.owner(), owner.address);
+    await assert.rejects(book.connect(outsider).acceptOwnership(), /Unauthorized/);
+    await (await book.connect(nextOwner).acceptOwnership()).wait();
+    assert.equal(await book.owner(), nextOwner.address);
+    assert.equal(await book.pendingOwner(), ethers.ZeroAddress);
+    await assert.rejects(book.setPaused(false), /Unauthorized/);
+    await (await book.connect(nextOwner).setPaused(false)).wait();
+    await (await book.connect(nextOwner).recordPurchase(...args)).wait();
+    assert.equal(await book.recordedPurchases(args[0]), true);
+  });
+});

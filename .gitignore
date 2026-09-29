@@ -7,3 +7,5 @@ state/
 .env
 .env.sepolia
 *.tsbuildinfo
+*.tmp
+evidence/*.bak
