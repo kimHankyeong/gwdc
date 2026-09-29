@@ -1,32 +1,45 @@
-// 앱·DB 없이 합성 감사 데이터를 기록합니다. 개인키와 원문은 공개 보고서에 넣지 않습니다.
+// Sepolia 합성 감사 기록 데모입니다. 공개 네트워크 공격은 하지 않고 자체 거래만 검증합니다.
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
-import { Contract, ContractFactory, FetchRequest, JsonRpcProvider, Wallet, keccak256, getCreateAddress } from "ethers";
+import {
+  Contract, ContractFactory, FetchRequest, JsonRpcProvider,
+  Wallet, keccak256, getCreateAddress,
+} from "ethers";
 import {
   CHAIN_ID, hashPayload, atomicJson, acquireLock, validatePayloads,
-  validateCheckpoint, validateCost, validateSigned, retryRpc, pendingStatus, verifyInclusion,
+  validateCheckpoint, validateSigned, retryRpc, verifyInclusion,
+  sealCheckpoint, openCheckpoint,
 } from "./audit-safety.mjs";
+import { executeTransaction } from "./audit-transaction.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const randomHash = () => `0x${randomBytes(32).toString("hex")}`;
 
-function createProvider() {
+// URL은 연결 주소이고 chainId는 별도의 검증 대상입니다. 자격 증명을 로그로 출력하지 않습니다.
+function createProviders() {
   config({ path: path.join(ROOT, ".env.sepolia") });
-  const url = new URL(process.env.TRACK_RPC_URL ?? "");
-  assert.equal(url.protocol, "https:", "Sepolia RPC must use HTTPS");
-  const request = new FetchRequest(url.href);
-  request.timeout = 15000;
-  return new JsonRpcProvider(request);
+  const primaryUrl = new URL(process.env.TRACK_RPC_URL ?? "");
+  const witnessUrl = new URL(process.env.TRACK_VERIFY_RPC_URL ?? "https://eth-sepolia.g.alchemy.com/v2/demo");
+  for (const url of [primaryUrl, witnessUrl]) {
+    assert.equal(url.protocol, "https:", "Sepolia RPC must use HTTPS");
+  }
+  assert.notEqual(primaryUrl.hostname, witnessUrl.hostname, "Use a separate RPC operator");
+
+  // 서로 다른 호스트라는 검사만으로 실제 운영자 독립성이 보장되지는 않습니다.
+  return [primaryUrl, witnessUrl].map(url => {
+    const request = new FetchRequest(url.href);
+    request.timeout = 15000;
+    return new JsonRpcProvider(request);
+  });
 }
 
-async function runAuditTest(provider) {
-  assert.equal((await retryRpc(() => provider.getNetwork())).chainId, CHAIN_ID, "Sepolia only");
+// 실행 잠금은 모든 요청의 nonce 사용을 직렬화합니다.
+async function runAuditTest(provider, witness) {
   const wallet = new Wallet(process.env.TRACK_CHAIN_PRIVATE_KEY ?? "", provider);
-  // 같은 PC의 다른 체크아웃도 같은 지갑을 동시에 쓰지 못하도록 잠급니다.
   const release = acquireLock(wallet.address);
   try {
     await runLocked();
@@ -34,160 +47,191 @@ async function runAuditTest(provider) {
     release();
   }
 
+  // 파일, 거래, 보고서가 같은 요청을 가리키도록 요청 식별자를 고정합니다.
   async function runLocked() {
-    const artifact = JSON.parse(readFileSync(path.join(ROOT, "artifacts/contracts/AuditRecord.sol/AuditRecord.json"), "utf8"));
     const requestId = process.env.TRACK_AUDIT_REQUEST_ID ?? "audit-v2-demo";
-    assert.match(requestId, /^[a-zA-Z0-9_-]{1,80}$/, "Invalid request ID");
+    assert.match(requestId, /^[a-z0-9_-]{1,80}$/, "Request ID must use lowercase ASCII");
     const checkpointFile = path.join(ROOT, "state", `${requestId}.json`);
     const reportFile = path.join(ROOT, "evidence", `${requestId}.json`);
-    const bytecodeHash = keccak256(artifact.bytecode);
-    const state = loadState();
-    const factory = new ContractFactory(artifact.abi, artifact.bytecode, wallet);
-    const deployRequest = await factory.getDeployTransaction();
+    let artifact;
+    let bytecodeHash;
+    let legacy = false;
+    let state;
+    const hadReport = existsSync(reportFile);
 
-    function loadState() {
+    // 이전 성공 보고서를 이번 실행의 결과로 오해하지 않도록 먼저 상태를 바꿉니다.
+    atomicJson(reportFile, { requestId, verification: "running", startedAt: new Date().toISOString() });
+    try {
+      // RPC 장애나 컴파일 산출물 손상도 최신 검증 실패로 보고합니다.
+      const networks = await Promise.all([provider, witness].map(node => retryRpc(() => node.getNetwork())));
+      assert.ok(networks.every(network => network.chainId === CHAIN_ID), "Sepolia only");
+      const artifactFile = path.join(ROOT, "artifacts/contracts/AuditRecord.sol/AuditRecord.json");
+      artifact = JSON.parse(readFileSync(artifactFile, "utf8"));
+      bytecodeHash = keccak256(artifact.bytecode);
+      state = await loadState();
+      await verifyAndRecord();
+    } catch (error) {
+      atomicJson(reportFile, {
+        requestId,
+        verification: "failed-or-unavailable",
+        txHash: state?.recording?.txHash ?? null,
+        checkedAt: new Date().toISOString(),
+      });
+      throw error;
+    }
+
+    // HMAC가 없는 기존 파일은 이미 서명된 두 거래의 읽기 전용 검증만 허용합니다.
+    async function loadState() {
       if (existsSync(checkpointFile)) {
-        const saved = JSON.parse(readFileSync(checkpointFile, "utf8"));
-        // 저장값을 덮어써서 복구하지 않고, 불일치 시 전송 전에 중단합니다.
+        const envelope = JSON.parse(readFileSync(checkpointFile, "utf8"));
+        let saved;
+        if (envelope.format) {
+          saved = openCheckpoint(envelope, wallet.privateKey);
+        } else {
+          legacy = true;
+          saved = envelope;
+          assert.ok(saved.deployment && saved.recording, "Unsigned legacy checkpoint requires manual recovery");
+        }
         validateCheckpoint(saved, wallet.address, requestId, bytecodeHash);
         return saved;
       }
+      // 상태가 사라졌는데 보고서가 남아 있으면 같은 요청을 새로 생성하지 않습니다.
+      assert.ok(!hadReport, "Missing checkpoint for an existing request; restore a verified backup");
+      const nonces = await Promise.all([provider, witness].map(node =>
+        retryRpc(() => node.getTransactionCount(wallet.address, "pending"))));
+      assert.equal(nonces[0], nonces[1], "RPC nonce disagreement");
       const payloads = validatePayloads(
-        { version: 1, maxBudget: 1000, reviewRequired: false, reviewMinimum: 0, reviewRatingMinimum: 0, salt: randomHash() },
-        { quantity: 1, unitPrice: 100, shipping: 0, total: 100, currency: "KRW", salt: randomHash() },
+        {
+          version: 1, maxBudget: 1000, reviewRequired: false,
+          reviewMinimum: 0, reviewRatingMinimum: 0, salt: randomHash(),
+        },
+        {
+          quantity: 1, unitPrice: 100, shipping: 0,
+          total: 100, currency: "KRW", salt: randomHash(),
+        },
       );
       const fresh = {
         version: 2, requestId, chainId: CHAIN_ID.toString(), signer: wallet.address,
-        bytecodeHash, purchaseId: randomHash(), ...payloads,
+        bytecodeHash, deploymentNonce: nonces[0], purchaseId: randomHash(), ...payloads,
         policyHash: hashPayload(payloads.policy), recordHash: hashPayload(payloads.record),
       };
-      atomicJson(checkpointFile, fresh);
+      atomicJson(checkpointFile, sealCheckpoint(fresh, wallet.privateKey));
       return fresh;
     }
 
-    function save() { atomicJson(checkpointFile, state); }
+    // 레거시는 모든 온체인 대조가 끝난 뒤에만 인증 형식으로 전환합니다.
+    function save() {
+      if (!legacy) atomicJson(checkpointFile, sealCheckpoint(state, wallet.privateKey));
+    }
 
-    function recordRequest(address) {
-      return {
-        to: address,
-        data: factory.interface.encodeFunctionData("recordPurchase", [state.purchaseId, state.policyHash, state.recordHash]),
-        value: 0n,
+    // 내부 함수로 배포·기록·검증의 순서를 한 곳에서 보여줍니다.
+    async function verifyAndRecord() {
+      const factory = new ContractFactory(artifact.abi, artifact.bytecode, wallet);
+      const deployRequest = await factory.getDeployTransaction();
+      // 초기 인증 상태로 되돌려도 새 nonce로 재배포하지 못하도록 고정합니다.
+      deployRequest.nonce = state.deploymentNonce ?? state.deployment?.nonce;
+
+      // 기록 호출 데이터는 저장된 인증 원문에서 재생성하고 서명 원문과 대조합니다.
+      function recordRequest(address) {
+        return {
+          to: address,
+          data: factory.interface.encodeFunctionData("recordPurchase", [
+            state.purchaseId, state.policyHash, state.recordHash,
+          ]),
+          value: 0n,
+        };
+      }
+
+      // 저장된 거래 전체를 먼저 검사해 뒤쪽 거래의 변조도 방송 전에 발견합니다.
+      if (state.deployment) {
+        const tx = validateSigned(state.deployment, deployRequest, wallet.address);
+        const address = getCreateAddress({ from: wallet.address, nonce: tx.nonce });
+        if (state.contractAddress) assert.equal(state.contractAddress, address);
+        if (state.recording) validateSigned(state.recording, recordRequest(address), wallet.address);
+      } else {
+        assert.ok(!state.recording, "Recording without deployment");
+      }
+
+      // 공통 실행기에 의도와 저장 함수를 전달합니다. 레거시 검증은 방송도 금지합니다.
+      function sendOnce(label, expected) {
+        return executeTransaction({
+          label, expected, state, wallet, provider, witness, save, readOnly: legacy,
+        });
+      }
+
+      // 코드 일치와 권한 상태를 두 노드에서 확인한 후 기록을 진행합니다.
+      async function deployContract() {
+        const receipt = await sendOnce("deployment", deployRequest);
+        const address = getCreateAddress({ from: wallet.address, nonce: state.deployment.nonce });
+        assert.equal(receipt.contractAddress, address);
+        for (const node of [provider, witness]) {
+          const code = await retryRpc(() => node.getCode(address));
+          assert.equal(code.toLowerCase(), artifact.deployedBytecode.toLowerCase(), "Unexpected deployed contract code");
+          const view = new Contract(address, artifact.abi, node);
+          // 이미 기록된 거래 조회는 소유권 이전·일시 중지 뒤에도 가능합니다.
+          if (!state.recording) {
+            assert.equal(await retryRpc(() => view.owner()), wallet.address);
+            assert.equal(await retryRpc(() => view.paused()), false, "Contract is paused");
+          }
+        }
+        state.contractAddress = address;
+        save();
+        return new Contract(address, artifact.abi, wallet);
+      }
+
+      // 출처·ID·해시를 검증합니다. RPC 간 로그 일치는 실행기의 영수증 검사에서 확인합니다.
+      async function verifyRecord(book, receipt) {
+        const events = receipt.logs
+          .filter(log => log.address.toLowerCase() === state.contractAddress.toLowerCase())
+          .map(log => book.interface.parseLog(log))
+          .filter(event => event?.name === "PurchaseRecorded");
+        assert.equal(events.length, 1, "Expected exactly one audit event");
+        assert.equal(events[0].args.purchaseId, state.purchaseId);
+        assert.equal(events[0].args.policyHash, state.policyHash);
+        assert.equal(events[0].args.recordHash, state.recordHash);
+        for (const node of [provider, witness]) {
+          const view = new Contract(state.contractAddress, artifact.abi, node);
+          assert.equal(await retryRpc(() => view.recordedPurchases(state.purchaseId)), true);
+        }
+      }
+
+      const book = await deployContract();
+      const receipt = await sendOnce("recording", recordRequest(state.contractAddress));
+      await verifyRecord(book, receipt);
+      const finality = await verifyInclusion(provider, receipt, state.recording.txHash, witness);
+      legacy = false;
+      save();
+      const report = {
+        scope: "standalone chain; synthetic data; no proof of real purchase",
+        verification: "verified",
+        requestId, chainId: state.chainId, signer: wallet.address,
+        contractAddress: state.contractAddress, deploymentTxHash: state.deployment.txHash,
+        txHash: state.recording.txHash, purchaseId: state.purchaseId,
+        policyHash: state.policyHash, recordHash: state.recordHash,
+        blockNumber: receipt.blockNumber, blockHash: receipt.blockHash,
+        receiptStatus: receipt.status, finality,
+        checks: {
+          eventMatches: true, signedIntentVerified: true,
+          runtimeCodeVerified: true, independentRpcAgreement: true,
+          checkpointAuthenticated: true,
+        },
+        explorerUrl: `https://sepolia.etherscan.io/tx/${state.recording.txHash}`,
+        verifiedAt: new Date().toISOString(),
       };
+      atomicJson(reportFile, report);
+      console.log(JSON.stringify(report, null, 2));
     }
-
-    // 기존 서명 두 개를 먼저 검증합니다. 하나라도 변조되었으면 방송하지 않습니다.
-    if (state.deployment) {
-      const tx = validateSigned(state.deployment, deployRequest, wallet.address);
-      const address = getCreateAddress({ from: wallet.address, nonce: tx.nonce });
-      if (state.contractAddress) assert.equal(state.contractAddress, address);
-      if (state.recording) validateSigned(state.recording, recordRequest(address), wallet.address);
-    } else {
-      assert.ok(!state.recording, "Recording without deployment");
-    }
-
-    async function sendOnce(label, expected) {
-      if (!state[label]) {
-        const populated = await retryRpc(() => wallet.populateTransaction({ ...expected, chainId: CHAIN_ID }));
-        const fee = validateCost(populated);
-        assert.ok(await retryRpc(() => provider.getBalance(wallet.address)) >= fee, "Insufficient balance for maximum fee");
-        const raw = await wallet.signTransaction(populated);
-        state[label] = { raw, txHash: keccak256(raw), nonce: populated.nonce, status: "signed" };
-        validateSigned(state[label], expected, wallet.address);
-        save(); // 방송 전에 서명과 nonce를 영속화합니다.
-      }
-      const saved = state[label];
-      const tx = validateSigned(saved, expected, wallet.address);
-      let receipt = await retryRpc(() => provider.getTransactionReceipt(saved.txHash));
-      if (!receipt) {
-        const status = await pendingStatus(provider, tx, saved.txHash);
-        saved.status = status;
-        save();
-        assert.ok(!status.includes("replaced") && status !== "possible-replacement", `${status}: manual transaction review required`);
-        try {
-          // 오류로 다시 호출되어도 정확히 같은 서명 바이트만 방송합니다.
-          await retryRpc(() => provider.broadcastTransaction(saved.raw));
-        } catch (error) {
-          if (!await retryRpc(() => provider.getTransaction(saved.txHash))) throw error;
-        }
-        console.log(JSON.stringify({ stage: label, txHash: saved.txHash, status: "waiting" }));
-        try {
-          receipt = await provider.waitForTransaction(saved.txHash, 1, 45000);
-        } catch (error) {
-          if (error.code !== "TIMEOUT") throw error;
-        }
-        if (!receipt) {
-          saved.status = await pendingStatus(provider, tx, saved.txHash);
-          save();
-          throw new Error(`${saved.status}: no receipt yet. Rerun with the same request ID; do not create a new request.`);
-        }
-      }
-      if (receipt.status !== 1) {
-        saved.status = "reverted";
-        save();
-        throw new Error(`${label} reverted; manual review required`);
-      }
-      saved.status = await verifyInclusion(provider, receipt);
-      saved.blockNumber = receipt.blockNumber;
-      saved.blockHash = receipt.blockHash;
-      save();
-      return receipt;
-    }
-
-    async function deployContract() {
-      const receipt = await sendOnce("deployment", deployRequest);
-      const address = getCreateAddress({ from: wallet.address, nonce: state.deployment.nonce });
-      assert.equal(receipt.contractAddress, address);
-      // owner()가 같다는 것만으로는 같은 계약이라고 판단할 수 없습니다.
-      const code = await retryRpc(() => provider.getCode(address));
-      assert.equal(code.toLowerCase(), artifact.deployedBytecode.toLowerCase(), "Unexpected deployed contract code");
-      state.contractAddress = address;
-      save();
-      const book = new Contract(address, artifact.abi, wallet);
-      assert.equal(await retryRpc(() => book.owner()), wallet.address);
-      assert.equal(await retryRpc(() => book.paused()), false, "Contract is paused");
-      return book;
-    }
-
-    async function verifyRecord(book, receipt) {
-      const events = receipt.logs
-        .filter(log => log.address.toLowerCase() === state.contractAddress.toLowerCase())
-        .map(log => book.interface.parseLog(log))
-        .filter(event => event?.name === "PurchaseRecorded");
-      assert.equal(events.length, 1, "Expected exactly one audit event");
-      assert.equal(events[0].args.purchaseId, state.purchaseId);
-      assert.equal(events[0].args.policyHash, state.policyHash);
-      assert.equal(events[0].args.recordHash, state.recordHash);
-      assert.equal(await retryRpc(() => book.recordedPurchases(state.purchaseId)), true);
-      await assert.rejects(book.recordPurchase.staticCall(state.purchaseId, state.policyHash, state.recordHash), /DuplicatePurchase/);
-      const outsider = Wallet.createRandom().connect(provider);
-      await assert.rejects(book.connect(outsider).recordPurchase.staticCall(randomHash(), state.policyHash, state.recordHash), /Unauthorized/);
-    }
-
-    const book = await deployContract();
-    const receipt = await sendOnce("recording", recordRequest(state.contractAddress));
-    await verifyRecord(book, receipt);
-    // 여러 RPC 호출 중의 재구성도 마지막에 확인하며, 블록 포함과 최종 확정을 구분합니다.
-    const finality = await verifyInclusion(provider, receipt);
-    const report = {
-      scope: "standalone chain; synthetic data; no payment or proof of real purchase",
-      requestId, chainId: state.chainId, signer: wallet.address,
-      contractAddress: state.contractAddress, deploymentTxHash: state.deployment.txHash,
-      txHash: state.recording.txHash, purchaseId: state.purchaseId,
-      policyHash: state.policyHash, recordHash: state.recordHash,
-      blockNumber: receipt.blockNumber, blockHash: receipt.blockHash,
-      receiptStatus: receipt.status, finality,
-      checks: { eventMatches: true, duplicateRejected: true, unauthorizedRejected: true, signedIntentVerified: true, runtimeCodeVerified: true },
-      explorerUrl: `https://sepolia.etherscan.io/tx/${state.recording.txHash}`,
-      verifiedAt: new Date().toISOString(),
-    };
-    atomicJson(reportFile, report);
-    console.log(JSON.stringify(report, null, 2));
   }
 }
 
-const provider = createProvider();
+// 최상위 오류에서 RPC URL·키·서명 원문이 포함될 수 있는 원본 예외를 출력하지 않습니다.
+let providers = [];
 try {
-  await runAuditTest(provider);
+  providers = createProviders();
+  await runAuditTest(...providers);
+} catch (error) {
+  console.error(JSON.stringify({ status: "stopped", code: error.code ?? "VALIDATION_FAILED" }));
+  process.exitCode = 1;
 } finally {
-  provider.destroy();
+  for (const provider of providers) provider.destroy();
 }

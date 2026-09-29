@@ -1,5 +1,6 @@
 {
-  "scope": "standalone chain; synthetic data; no payment or proof of real purchase",
+  "scope": "standalone chain; synthetic data; no proof of real purchase",
+  "verification": "verified",
   "requestId": "audit-v2-demo",
   "chainId": "11155111",
   "signer": "0x82E9e4562c0ce6973e35578A1A37361c574C99A5",
@@ -15,11 +16,11 @@
   "finality": "included",
   "checks": {
     "eventMatches": true,
-    "duplicateRejected": true,
-    "unauthorizedRejected": true,
     "signedIntentVerified": true,
-    "runtimeCodeVerified": true
+    "runtimeCodeVerified": true,
+    "independentRpcAgreement": true,
+    "checkpointAuthenticated": true
   },
   "explorerUrl": "https://sepolia.etherscan.io/tx/0x0994acda23234774f58386cc8909887b2cb839557dd2eff5e1863a2d95b2107e",
-  "verifiedAt": "2026-09-29T04:08:47.668Z"
+  "verifiedAt": "2026-09-29T04:22:22.553Z"
 }
