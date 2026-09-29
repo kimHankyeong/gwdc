@@ -10,7 +10,7 @@ export class AuditWorker {
  private running=false;
  constructor(private db:Database,private root:string,private env:NodeJS.ProcessEnv) {}
  private relayed(){return this.env.AUDIT_GAS_MODE==='relayer';}
- configured(){return !!(this.env.TRACK_RPC_URL&&this.env.TRACK_VERIFY_RPC_URL&&this.env.WALLET_MASTER_KEY&&(!this.relayed()||this.env.AUDIT_RELAYER_PRIVATE_KEY));}
+ configured(){return !!((!this.env.AUDIT_GAS_MODE||['personal','relayer'].includes(this.env.AUDIT_GAS_MODE))&&this.env.TRACK_RPC_URL&&this.env.TRACK_VERIFY_RPC_URL&&this.env.WALLET_MASTER_KEY&&(!this.relayed()||this.env.AUDIT_RELAYER_PRIVATE_KEY));}
  async readiness(){
   let state="UNAVAILABLE",relayState="UNAVAILABLE";
   const providers:JsonRpcProvider[]=[];
@@ -49,6 +49,8 @@ export class AuditWorker {
     const address=new Wallet(this.env.AUDIT_RELAYER_PRIVATE_KEY!).address;
     relayerLocked=(await relayerConnection.query("SELECT pg_try_advisory_lock(110012,hashtext($1)) AS locked",[address.toLowerCase()])).rows[0].locked;
     if(!relayerLocked)return false;
+    const ready=(await relayerConnection.query("SELECT count(*)::int AS n FROM service_health WHERE name IN ('audit','audit-relayer') AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rows[0].n;
+    if(ready!==2)return false;
    }
    const request=await this.db.tx(async c=>(await c.query("SELECT owner_id FROM wallet_requests WHERE NOT EXISTS(SELECT 1 FROM owner_wallets w WHERE w.owner_id=wallet_requests.owner_id) ORDER BY requested_at FOR UPDATE SKIP LOCKED LIMIT 1")).rows[0]);
    if(request){const wallet=Wallet.createRandom(),key=walletMasterKey(this.env.WALLET_MASTER_KEY);
