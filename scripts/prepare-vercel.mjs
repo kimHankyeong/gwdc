@@ -11,6 +11,11 @@ await cp(resolve(root,'python_worker/main.py'),resolve(output,'python_worker/mai
 await cp(resolve(root,'deploy/certs'),resolve(output,'deploy/certs'),{recursive:true});
 await mkdir(resolve(output,'blockchain/scripts'),{recursive:true});
 await cp(resolve(root,'blockchain/scripts/audit-safety.mjs'),resolve(output,'blockchain/scripts/audit-safety.mjs'));
+await cp(resolve(root,'blockchain/scripts/audit-transaction.mjs'),resolve(output,'blockchain/scripts/audit-transaction.mjs'));
+await mkdir(resolve(output,'blockchain/src'),{recursive:true});
+await cp(resolve(root,'blockchain/src/runAudit.mjs'),resolve(output,'blockchain/src/runAudit.mjs'));
+await mkdir(resolve(output,'blockchain/artifacts/contracts/AuditRecord.sol'),{recursive:true});
+await cp(resolve(root,'blockchain/artifacts/contracts/AuditRecord.sol/AuditRecord.json'),resolve(output,'blockchain/artifacts/contracts/AuditRecord.sol/AuditRecord.json'));
 const pkg=JSON.parse(await readFile(resolve(output,'package.json'),'utf8'));
 const backend=JSON.parse(await readFile(resolve(root,'backend/package.json'),'utf8'));
 pkg.dependencies={...pkg.dependencies,...backend.dependencies};

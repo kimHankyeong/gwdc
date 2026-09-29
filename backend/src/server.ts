@@ -25,6 +25,35 @@ declare module "fastify" {interface FastifyRequest {owner:string}}
 export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  const app=Fastify({logger:false,bodyLimit:32768,trustProxy:false});
  const cloudPurchase=env.POLICY_SERVERLESS==='1'&&env.SERVICE_ROLE!=='policy-admin'?new PurchaseWorker(flow):null;
+ const callCloudAudit=async(action:'ready'|'tick',requestId?:string)=>{
+  if(!cloudPurchase||!env.PUBLIC_APP_ORIGIN||!env.AUDIT_TRIGGER_SECRET)return;
+  try{
+   const url=new URL('/api/audit',env.PUBLIC_APP_ORIGIN);
+   const response=await fetch(url,{method:'POST',headers:{authorization:`Bearer ${env.AUDIT_TRIGGER_SECRET}`,'content-type':'application/json'},body:JSON.stringify({action,requestId}),signal:AbortSignal.timeout(action==='ready'?15000:150000)});
+   if(!response.ok)throw Error('AUDIT_TRIGGER_FAILED');
+   return await response.json();
+  }catch{/* Durable audit job stays pending for an authenticated retry or cron. */}
+ };
+ let readinessRequest:Promise<void>|null=null;
+ const ensureCloudAuditReady=async()=>{
+  if(!cloudPurchase)return;
+  if((await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='audit' AND state='VERIFIED' AND checked_at>now()-interval '45 seconds'")).rowCount)return;
+  if(!readinessRequest)readinessRequest=(async()=>{
+   let elected=false;
+   try{await consumeLimit(flow.db,'audit-readiness-refresh:global',1);elected=true;}catch{}
+   if(elected){await callCloudAudit('ready');return;}
+   for(let i=0;i<8;i++){
+    await new Promise(resolve=>setTimeout(resolve,1000));
+    if(await flow.auditReady())return;
+   }
+  })().finally(()=>{readinessRequest=null;});
+  await readinessRequest;
+ };
+ const processCloudAudit=async(owner:string,runId:string)=>{
+  const run=await flow.run(owner,runId);
+  for(const receipt of run.receipts.filter((r:any)=>r.audit_state&&r.audit_state!=='FINALIZED'))await callCloudAudit('tick',receipt.id);
+  return flow.run(owner,runId);
+ };
  app.register(helmet);app.decorateRequest("owner","");
  const tokens:Record<string,string>=JSON.parse(env.AUTH_TOKEN_HASHES??"{}");
  const windows=new Map<string,{at:number,count:number}>();
@@ -54,10 +83,12 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
   if(error instanceof ZodError)return reply.code(400).send({error:"INVALID_INPUT"});
   reply.code(500).send({error:"INTERNAL_ERROR"});
  });
- app.get("/api/health",async()=>({orderMode:"SIMULATION",chainMode:"SEPOLIA_REAL",gasMode:(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='audit-relayer' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount?"RELAYED":await flow.auditReady()?"PERSONAL":"UNAVAILABLE",configured:{
+ const healthStatus=async()=>({orderMode:"SIMULATION",chainMode:"SEPOLIA_REAL",gasMode:(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='audit-relayer' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount?"RELAYED":await flow.auditReady()?"PERSONAL":"UNAVAILABLE",configured:{
   kiln:!!env.KILN_API_KEY,search:!!env.SEARCH_API_URL,auth:env.AUTH_MODE==='supabase'||Object.keys(tokens).length>0,
   audit:await flow.auditReady()},capabilities:{audit:await flow.auditReady()?"VERIFIED":"UNAVAILABLE",
-  policyAdmin:env.POLICY_SERVERLESS==='1'||!!(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='policy-admin' AND state='CONFIGURED' AND checked_at>now()-interval '60 seconds'")).rowCount},notice:"Configuration is not live verification"}));
+  policyAdmin:env.POLICY_SERVERLESS==='1'||!!(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='policy-admin' AND state='CONFIGURED' AND checked_at>now()-interval '60 seconds'")).rowCount},notice:"Configuration is not live verification"});
+ app.get('/api/health',healthStatus);
+ app.get('/api/audit/status',async()=>{await ensureCloudAuditReady();return healthStatus();});
  app.get("/api/scopes",async(req)=>(await flow.db.pool.query("SELECT id,mode,active_version FROM policy_scopes WHERE owner_id=$1",[req.owner])).rows);
  app.post('/api/setup',async req=>flow.setup(req.owner,req.body));
  app.get<{Params:{id:string}}>("/api/policies/:id",async req=>{
@@ -67,19 +98,22 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  app.post("/api/agent/runs",async req=>flow.start(req.owner,req.body));
  app.get<{Params:{id:string}}>("/api/agent/runs/:id",async req=>flow.run(req.owner,req.params.id));
  app.post<{Params:{id:string}}>("/api/agent/runs/:id/resume",async req=>{
+  await ensureCloudAuditReady();
   const result=await agent.resume(req.owner,req.params.id);
   if(cloudPurchase&&result.state==='PROCESSING'){
    await cloudPurchase.tick(req.owner,req.params.id);
-   return flow.run(req.owner,req.params.id);
+   return processCloudAudit(req.owner,req.params.id);
   }
   return result;
  });
  if(cloudPurchase)app.post<{Params:{id:string}}>("/api/agent/runs/:id/process",async req=>{
+  await ensureCloudAuditReady();
   const run=await flow.run(req.owner,req.params.id);
   requireThat(run.active&&run.state==='PROCESSING',"INVALID_STAGE");
   await cloudPurchase.tick(req.owner,req.params.id);
-  return flow.run(req.owner,req.params.id);
+  return processCloudAudit(req.owner,req.params.id);
  });
+ if(cloudPurchase)app.post<{Params:{id:string}}>('/api/agent/runs/:id/audit-process',async req=>processCloudAudit(req.owner,req.params.id));
  const event=z.object({eventId:id,expectedVersion:z.number().int().positive(),type:z.enum(["ANSWER","RETRY","CANCEL"]),
   payload:z.object({query:z.string().min(1).max(600).optional(),maxTotal:money.optional(),quantity:z.number().int().min(1).max(100000).optional(),requiredName:z.string().max(300).optional()}).strict().default({})}).strict();
  app.post<{Params:{id:string}}>("/api/agent/runs/:id/events",async req=>flow.event(req.owner,req.params.id,event.parse(req.body)));
@@ -88,7 +122,7 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  app.post<{Params:{id:string}}>("/api/purchase-intents/:id/refresh",async req=>flow.refreshQuote(req.owner,req.params.id));
  app.get<{Params:{id:string}}>("/api/receipts/:id",async req=>flow.receipt(req.owner,req.params.id));
  app.get<{Params:{id:string}}>("/api/receipts/:id/audit",async req=>flow.receipt(req.owner,req.params.id,true));
- app.get("/api/receipts",async req=>(await flow.db.pool.query("SELECT id,data,created_at FROM receipts WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 100",[req.owner])).rows);
+ app.get("/api/receipts",async req=>(await flow.db.pool.query("SELECT r.id,r.data,r.created_at,j.state AS audit_state,j.report AS audit_report FROM receipts r LEFT JOIN audit_jobs j ON j.receipt_id=r.id WHERE r.owner_id=$1 ORDER BY r.created_at DESC LIMIT 100",[req.owner])).rows);
  app.get('/api/audits',async req=>(await flow.db.pool.query("SELECT r.id,r.created_at,r.data->'quote'->>'name' AS name,COALESCE(j.state,'PENDING') AS state,j.report FROM receipts r LEFT JOIN audit_jobs j ON j.receipt_id=r.id WHERE r.owner_id=$1 ORDER BY r.created_at DESC LIMIT 50",[req.owner])).rows);
  app.get('/api/wallet',async req=>{const row=(await flow.db.pool.query("SELECT address,funded_at,funding_checked_at FROM owner_wallets WHERE owner_id=$1",[req.owner])).rows[0];if(row)return {state:'ACTIVE',address:row.address,funded:!!row.funded_at&&new Date(row.funded_at).getTime()>Date.now()-300000,checkedAt:row.funding_checked_at};return {state:(await flow.db.pool.query("SELECT 1 FROM wallet_requests WHERE owner_id=$1",[req.owner])).rowCount?'REQUESTED':'NONE'};});
  app.post('/api/wallet',async req=>{await flow.db.pool.query("INSERT INTO wallet_requests(owner_id) SELECT $1 WHERE NOT EXISTS(SELECT 1 FROM owner_wallets WHERE owner_id=$1) ON CONFLICT(owner_id) DO NOTHING",[req.owner]);return {state:'REQUESTED'};});

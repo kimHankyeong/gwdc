@@ -38,9 +38,9 @@ function createProviders() {
 }
 
 // 실행 잠금은 모든 요청의 nonce 사용을 직렬화합니다.
-async function runAuditTest(provider, witness, input, signerKey) {
+async function runAuditTest(provider, witness, input, signerKey, storage) {
   const wallet = new Wallet(signerKey, provider);
-  const release = acquireLock(wallet.address);
+  const release = storage ? () => {} : acquireLock(wallet.address);
   try {
     return await runLocked();
   } finally {
@@ -53,14 +53,20 @@ async function runAuditTest(provider, witness, input, signerKey) {
     assert.match(requestId, /^[a-z0-9_-]{1,80}$/, "Request ID must use lowercase ASCII");
     const checkpointFile = path.join(ROOT, "state", `${requestId}.json`);
     const reportFile = path.join(ROOT, "evidence", `${requestId}.json`);
+    const store = storage ?? {
+      loadCheckpoint: async () => existsSync(checkpointFile) ? JSON.parse(readFileSync(checkpointFile, "utf8")) : null,
+      hasReport: async () => existsSync(reportFile),
+      saveCheckpoint: async value => atomicJson(checkpointFile, value),
+      saveReport: async value => atomicJson(reportFile, value),
+    };
     let artifact;
     let bytecodeHash;
     let legacy = false;
     let state;
-    const hadReport = existsSync(reportFile);
+    const hadReport = await store.hasReport();
 
     // 이전 성공 보고서를 이번 실행의 결과로 오해하지 않도록 먼저 상태를 바꿉니다.
-    atomicJson(reportFile, { requestId, verification: "running", startedAt: new Date().toISOString() });
+    if (!storage) await store.saveReport({ requestId, verification: "running", startedAt: new Date().toISOString() });
     try {
       // RPC 장애나 컴파일 산출물 손상도 최신 검증 실패로 보고합니다.
       const networks = await Promise.all([provider, witness].map(node => retryRpc(() => node.getNetwork())));
@@ -71,7 +77,7 @@ async function runAuditTest(provider, witness, input, signerKey) {
       state = await loadState();
       return await verifyAndRecord();
     } catch (error) {
-      atomicJson(reportFile, {
+      if (!storage || state) await store.saveReport({
         requestId,
         verification: "failed-or-unavailable",
         txHash: state?.recording?.txHash ?? null,
@@ -82,8 +88,8 @@ async function runAuditTest(provider, witness, input, signerKey) {
 
     // HMAC가 없는 기존 파일은 이미 서명된 두 거래의 읽기 전용 검증만 허용합니다.
     async function loadState() {
-      if (existsSync(checkpointFile)) {
-        const envelope = JSON.parse(readFileSync(checkpointFile, "utf8"));
+      const envelope = await store.loadCheckpoint();
+      if (envelope) {
         let saved;
         if (envelope.format) {
           saved = openCheckpoint(envelope, wallet.privateKey);
@@ -110,13 +116,13 @@ async function runAuditTest(provider, witness, input, signerKey) {
         bytecodeHash, deploymentNonce: nonces[0], purchaseId: input.purchaseId, ...payloads,
         policyHash: hashPayload(payloads.policy), recordHash: hashPayload(payloads.record),
       };
-      atomicJson(checkpointFile, sealCheckpoint(fresh, wallet.privateKey));
+      await store.saveCheckpoint(sealCheckpoint(fresh, wallet.privateKey));
       return fresh;
     }
 
     // 레거시는 모든 온체인 대조가 끝난 뒤에만 인증 형식으로 전환합니다.
-    function save() {
-      if (!legacy) atomicJson(checkpointFile, sealCheckpoint(state, wallet.privateKey));
+    async function save() {
+      if (!legacy) await store.saveCheckpoint(sealCheckpoint(state, wallet.privateKey));
     }
 
     // 내부 함수로 배포·기록·검증의 순서를 한 곳에서 보여줍니다.
@@ -170,7 +176,7 @@ async function runAuditTest(provider, witness, input, signerKey) {
           }
         }
         state.contractAddress = address;
-        save();
+        await save();
         return new Contract(address, artifact.abi, wallet);
       }
 
@@ -195,7 +201,7 @@ async function runAuditTest(provider, witness, input, signerKey) {
       await verifyRecord(book, receipt);
       const finality = await verifyInclusion(provider, receipt, state.recording.txHash, witness);
       legacy = false;
-      save();
+      await save();
       const report = {
         scope: "SIMULATION order; real Sepolia audit; no proof of real purchase",
         sourceMode: "SIMULATION", chainMode: "SEPOLIA_REAL",
@@ -214,21 +220,21 @@ async function runAuditTest(provider, witness, input, signerKey) {
         explorerUrl: `https://sepolia.etherscan.io/tx/${state.recording.txHash}`,
         verifiedAt: new Date().toISOString(),
       };
-      atomicJson(reportFile, report);
+      await store.saveReport(report);
       return report;
     }
   }
 }
 
 // Explicit invocation only: importing this module never contacts a network.
-export async function runAuditWithInput(input, signerKey = process.env.TRACK_CHAIN_PRIVATE_KEY ?? "") {
+export async function runAuditWithInput(input, signerKey = process.env.TRACK_CHAIN_PRIVATE_KEY ?? "", storage) {
   assert.equal(input.sourceMode, "SIMULATION");
   validatePayloads(input.policy, input.record);
   assert.match(input.purchaseId, /^0x[0-9a-f]{64}$/);
   let providers = [];
   try {
     providers = createProviders();
-    return await runAuditTest(...providers, input, signerKey);
+    return await runAuditTest(...providers, input, signerKey, storage);
   } finally {
     for (const provider of providers) provider.destroy();
   }
