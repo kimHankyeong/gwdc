@@ -92,6 +92,11 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  await flow.approvePurchase("alice",intentId,{quoteVersion:1,expectedGeneration:1,mode:"SIMULATION",requestKey:"approval-one"});
  await Promise.all([agent.execute("alice",started.runId,"execute_purchase",{intentId}),agent.execute("alice",started.runId,"execute_purchase",{intentId})]);
  const worker=new PurchaseWorker(flow);
+ await db.pool.query("UPDATE owner_wallets SET funded_at=NULL WHERE owner_id='alice'");
+ await assert.rejects(()=>worker.tick(),/AUDIT_NOT_READY/);
+ assert.equal((await db.pool.query("SELECT spent FROM balances WHERE owner_id='alice'")).rows[0].spent,"0");
+ await db.pool.query("UPDATE owner_wallets SET funded_at=now(),funding_checked_at=now() WHERE owner_id='alice'");
+ await db.pool.query("UPDATE purchase_jobs SET lease_until=now()-interval '1 second' WHERE intent_id=$1",[intentId]);
  await Promise.all([worker.tick(),worker.tick()]);
  await agent.execute("alice",started.runId,"execute_purchase",{intentId});
  const balance=(await db.pool.query("SELECT balance,reserved,spent FROM balances")).rows[0];

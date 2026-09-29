@@ -86,6 +86,7 @@ Kiln 요청마다 전체 정책을 고정 prefix로 포함합니다. 앱의 READ
 - `npm run build -w sepolia-audit-boilerplate`로 원본 계약을 컴파일합니다.
 - 최초 요청마다 계약 배포 + recordPurchase, 재시도는 동일 체크포인트와 서명을 복구합니다. state/evidence와 백업을 보호하고 임의 삭제하지 마세요.
 - 릴레이어는 모든 사용자의 nonce를 공유하므로 DB advisory lock으로 동시 실행을 직렬화합니다. 체크포인트는 파일이므로 감사 워커는 **영구 디스크가 있는 단일 호스트**로 운영하고 복구 가능한 백업을 유지해야 합니다. Vercel Functions만으로는 상시 감사 워커가 되지 않습니다.
+- 모의 주문 큐도 `SERVICE_ROLE=agent` 상시 프로세스가 처리합니다. Vercel API의 `cloudRuntime`은 요청만 받고 큐 타이머를 실행하지 않습니다. 따라서 운영에는 별도 상시 호스트에서 agent와 audit 프로세스를 각각 실행해야 합니다. 두 프로세스는 같은 DB를 사용하며, 서명 비밀키는 audit 프로세스에만 둡니다.
 - 자동 모의 주문은 요청 생성 시 명시적으로 켠 `HardInput`에만 적용됩니다. 최대 금액·수량·정확한 상품명을 필수로 받아 서버가 검색 근거와 정책을 재평가한 뒤 한 건만 작업 큐에 넣습니다. 요청 내용을 변경하면 자동 동의가 해제됩니다. 실제 상품 주문·결제는 하지 않습니다. 기존 DB에는 `backend/src/db/006_auto_purchase.sql`을 선적용해야 합니다.
 - HMAC은 원본처럼 signer 개인키에서 용도별 파생되며 암호화가 아닙니다.
 - 실제 receipt status=1·이벤트·두 RPC가 일치해야 verified, finalized 확인 전에는 완료가 아닙니다.

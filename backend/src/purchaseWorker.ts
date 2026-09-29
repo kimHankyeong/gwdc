@@ -18,6 +18,7 @@ export class PurchaseWorker {
    const it=(await c.query("SELECT * FROM purchase_intents WHERE id=$1 FOR UPDATE",[job.intent_id])).rows[0];
    const current=(await c.query("SELECT * FROM purchase_jobs WHERE intent_id=$1 AND generation=$2 FOR UPDATE",[job.intent_id,job.generation])).rows[0];
    if(current.fence!==job.fence||current.state!=="RUNNING"||it.generation!==job.generation)return;
+   requireThat(await this.flow.auditReady(c,it.owner_id),"AUDIT_NOT_READY");
    if(it.state==="COMMITTED"){await c.query("UPDATE purchase_jobs SET state='DONE' WHERE intent_id=$1 AND generation=$2",[it.id,job.generation]);return;}
    requireThat(it.state==="PROCESSING"&&it.approval?.generation===it.generation,"STALE_JOB");
    const r=await this.flow.ownedRun(c,it.run_id,it.owner_id);
