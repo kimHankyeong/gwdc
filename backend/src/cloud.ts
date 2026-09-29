@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import {Database} from './db.js';
 import {PolicyCache} from './policy.js';
 import {PythonEvaluator} from './python.js';
-import {SearchService} from './search.js';
+import {SearchService,defaultProductHosts} from './search.js';
 import {Workflow} from './workflow.js';
 import {Agent} from './agent.js';
 import {KilnClient} from './kiln.js';
@@ -19,7 +19,7 @@ export async function cloudRuntime(policyAdmin=false){
  env.SEARCH_API_URL=compute;
  const cache=new PolicyCache('', 'python-v1:tools-v1:prompt-v1:'+env.KILN_MODEL,async(scope,version)=>
   (await db.pool.query('SELECT policy FROM policy_versions WHERE scope_id=$1 AND version=$2',[scope,version])).rows[0]?.policy);
- const flow=new Workflow(db,cache,new PythonEvaluator('','',{url:compute,secret:env.INTERNAL_API_SECRET}),new SearchService(compute,new Set((env.SOURCE_ALLOWED_HOSTS??'').split(',').filter(Boolean)),env.INTERNAL_API_SECRET),'',policyAdmin?db:null,'database');
+ const flow=new Workflow(db,cache,new PythonEvaluator('','',{url:compute,secret:env.INTERNAL_API_SECRET}),new SearchService(compute,new Set((env.SOURCE_ALLOWED_HOSTS??defaultProductHosts).split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)),env.INTERNAL_API_SECRET),'',policyAdmin?db:null,'database');
  if(policyAdmin)await db.pool.query("INSERT INTO service_health(name,state) VALUES('policy-admin','CONFIGURED') ON CONFLICT(name) DO UPDATE SET checked_at=now(),state='CONFIGURED'");
  const app=createApp(flow,new Agent(flow,new KilnClient(env,()=>consumeLimit(db,'kiln:global',50))),env);
  await app.ready();return app;

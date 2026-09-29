@@ -75,14 +75,14 @@ Kiln 요청마다 전체 정책을 고정 prefix로 포함합니다. 앱의 READ
 
 ## 실제 검색
 
-검색은 DDGS의 DuckDuckGo backend를 사용하며 Brave 키는 사용하지 않습니다. `SEARCH_API_URL`과 원문 수집용 `SOURCE_ALLOWED_HOSTS`를 설정합니다. 검색 endpoint가 없으면 SEARCH_NOT_CONFIGURED입니다. 안전 수집은 HTTPS/443, 모든 DNS 주소 검사, 검증 IP 연결 고정, redirect 재검증, 10초/2MiB 한도를 적용합니다. 내장 가짜 상품 목록은 없습니다.
+검색은 DDGS의 DuckDuckGo backend를 사용하며 Brave 키는 사용하지 않습니다. 기본 판매 페이지 호스트는 `www.11st.co.kr,www.ikea.com`이며 `SOURCE_ALLOWED_HOSTS`로 교체할 수 있습니다. 일반 웹 결과는 후보에서 제외합니다. 가격은 판매 페이지 JSON-LD 관측값만 사용하며, 11번가의 명시적 무료배송 표기 또는 JSON-LD 배송비가 없으면 모의 주문 계산을 차단합니다. 가격은 5분 이내의 관측값이어야 합니다. 안전 수집은 HTTPS/443, DNS 주소 검사, 연결 IP 고정, redirect 재검증, 10초/2MiB 한도를 적용합니다. 내장 가짜 상품 목록은 없습니다.
 
 ## 실제 Sepolia 감사
 
 - 원본 v1: KRW 정수·단일 품목·수량×단가+배송비·reviewRequired=false만 지원합니다. 다른 정책은 주문 실행 전 반려합니다.
 - 모의 주문 영수증의 고정 salts/requestId/purchaseId를 사용합니다. 전체 정책 digest와 v1 policyHash는 다릅니다.
 - 같은 저장소 원본 `validatePayloads`, `hashPayload`, `executeTransaction`, AuditRecord ABI를 재사용합니다.
-- `SERVICE_ROLE=audit`인 **단일 signer 호스트**에만 `TRACK_RPC_URL`, `TRACK_VERIFY_RPC_URL`, `TRACK_CHAIN_PRIVATE_KEY`와 테스트 ETH를 설정합니다. 일반 에이전트에 signer 키를 전달하지 마세요.
+- `SERVICE_ROLE=audit`인 **상시 signer 호스트**에만 `TRACK_RPC_URL`, `TRACK_VERIFY_RPC_URL`, 32바이트 hex `WALLET_MASTER_KEY`를 설정합니다. 사용자별 Sepolia 키는 이 호스트에서 생성해 AES-256-GCM으로 암호화 보관하며, API는 주소만 읽습니다. 각 사용자 지갑에 테스트 ETH가 확인되기 전에는 감사 실행을 차단합니다. 키 원문과 master key를 Vercel 프런트·일반 에이전트에 전달하지 마세요.
 - `npm run build -w sepolia-audit-boilerplate`로 원본 계약을 컴파일합니다.
 - 최초 요청마다 계약 배포 + recordPurchase, 재시도는 동일 체크포인트와 서명을 복구합니다. state/evidence와 백업을 보호하고 임의 삭제하지 마세요.
 - HMAC은 원본처럼 signer 개인키에서 용도별 파생되며 암호화가 아닙니다.
@@ -133,7 +133,7 @@ python -m venv .venv-search
 .\.venv-search\Scripts\python.exe -m uvicorn search_service.app:app --host 127.0.0.1 --port 4479 --no-access-log
 ```
 
-`.env`에 `SEARCH_API_URL=http://127.0.0.1:4479`를 지정한 뒤 backend를 시작합니다. 검색 API 키는 필요하지 않습니다. SOURCE_ALLOWED_HOSTS는 원문 수집을 허용할 호스트 목록이며, 비어 있으면 실제 검색 제목/URL 후보만 제공하고 원문 필드는 미확인으로 남습니다. 검색 제공자는 상품·판매처 신원 또는 가격 진위를 보증하지 않습니다.
+`.env`에 `SEARCH_API_URL=http://127.0.0.1:4479`를 지정한 뒤 backend를 시작합니다. 검색 API 키는 필요하지 않습니다. `SOURCE_ALLOWED_HOSTS`를 비우면 판매 페이지 후보도 비워집니다. 검색 순위·가격은 판매처의 현재 재고와 최종 결제액을 보증하지 않습니다.
 
 검색 API는 loopback 전용, origin 차단, 본문/결과 크기 제한, 동시 검색 2개, 60초 메모리 캐시(최대 256개), 동일 검색 병합을 적용합니다. `/extract`나 외부 호출자 지정 backend는 제공하지 않습니다. 서버가 결과를 검증한 후 기존 SSRF 보호 수집기로만 원문을 가져옵니다.
 

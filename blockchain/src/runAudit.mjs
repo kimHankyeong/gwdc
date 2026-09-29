@@ -38,8 +38,8 @@ function createProviders() {
 }
 
 // 실행 잠금은 모든 요청의 nonce 사용을 직렬화합니다.
-async function runAuditTest(provider, witness, input) {
-  const wallet = new Wallet(process.env.TRACK_CHAIN_PRIVATE_KEY ?? "", provider);
+async function runAuditTest(provider, witness, input, signerKey) {
+  const wallet = new Wallet(signerKey, provider);
   const release = acquireLock(wallet.address);
   try {
     return await runLocked();
@@ -221,14 +221,14 @@ async function runAuditTest(provider, witness, input) {
 }
 
 // Explicit invocation only: importing this module never contacts a network.
-export async function runAuditWithInput(input) {
+export async function runAuditWithInput(input, signerKey = process.env.TRACK_CHAIN_PRIVATE_KEY ?? "") {
   assert.equal(input.sourceMode, "SIMULATION");
   validatePayloads(input.policy, input.record);
   assert.match(input.purchaseId, /^0x[0-9a-f]{64}$/);
   let providers = [];
   try {
     providers = createProviders();
-    return await runAuditTest(...providers, input);
+    return await runAuditTest(...providers, input, signerKey);
   } finally {
     for (const provider of providers) provider.destroy();
   }

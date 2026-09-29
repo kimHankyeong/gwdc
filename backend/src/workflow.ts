@@ -30,8 +30,9 @@ export class Workflow {
    return {scopeId};
   });
  }
- async auditReady(client:any=this.db.pool) {
-  return !!(await client.query("SELECT 1 FROM service_health WHERE name='audit' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount;
+ async auditReady(client:any=this.db.pool,owner?:string) {
+  if(!(await client.query("SELECT 1 FROM service_health WHERE name='audit' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount)return false;
+  return !owner||!!(await client.query("SELECT 1 FROM owner_wallets WHERE owner_id=$1 AND funded_at>now()-interval '5 minutes' AND funding_checked_at>now()-interval '5 minutes'",[owner])).rowCount;
  }
  async ownedRun(c:PoolClient,id:string,owner:string,lock=false) {
   const r=(await c.query("SELECT * FROM agent_runs WHERE id=$1 AND owner_id=$2"+(lock?" FOR UPDATE":""),[id,owner])).rows[0];
@@ -81,8 +82,7 @@ export class Workflow {
     let input=r.input;
     if(event.type==="ANSWER"){
      input={...input,...event.payload};
-     requireThat(!Object.keys(event.payload).some(k=>!["query","maxTotal","quantity","requiredName","simulation"].includes(k)),"INVALID_ANSWER");
-     // User-only simulation inputs cannot be supplied by any LLM tool.
+     requireThat(!Object.keys(event.payload).some(k=>!["query","maxTotal","quantity","requiredName"].includes(k)),"INVALID_ANSWER");
      await c.query("UPDATE agent_runs SET input=$2,input_version=input_version+1,question=NULL,constraint_approval=NULL WHERE id=$1",[id,input]);
     }
     await c.query("UPDATE agent_runs SET state='READY',error_code=NULL,version=version+1 WHERE id=$1",[id]);
@@ -109,15 +109,18 @@ export class Workflow {
   const candidate=(await c.query("SELECT data FROM candidates WHERE id=$1 AND run_id=$2",[candidateId,r.id])).rows[0]?.data;
   requireThat(candidate,"NOT_FOUND",404);
   const p=(await this.cache.load(r.scope_id,r.policy_version,r.policy_digest)).policy;
-  const sim=r.input.simulation;
   const f=candidate.fields??{};
-  // All amounts used for simulation need explicit user-entered minor units.
-  requireThat(sim&&sim.candidateId===candidateId,"SIMULATION_INPUT_REQUIRED");
-  requireThat(/^(0|[1-9][0-9]{0,14})$/.test(sim.unitPrice)&&/^(0|[1-9][0-9]{0,14})$/.test(sim.shipping),"INVALID_AMOUNT");
-  return {candidateId,name:f.name??candidate.name,quantity,unitPrice:sim.unitPrice,shipping:sim.shipping,
-   currency:p.currency,merchant:sourceMerchant(candidate),brand:f.brand??null,rating:f.rating??null,
+  requireThat(candidate.evidenceType==="HTML_OBSERVATION"&&candidate.contentHash&&candidate.verifiedMerchantHost,"PRICE_EVIDENCE_MISSING");
+  requireThat(Date.now()-new Date(candidate.fetchedAt).getTime()<5*60*1000,"PRICE_EVIDENCE_STALE");
+  requireThat(f.currency===p.currency&&f.shippingCurrency===p.currency,"PRICE_CURRENCY_MISMATCH");
+  const amount=(v:unknown)=>{if(typeof v!=="string")return null;const m=/^(0|[1-9][0-9]{0,14})(?:\.([0-9]{1,3}))?$/.exec(v);if(!m||m[2]&&m[2].length>p.minorDigits)return null;return (BigInt(m[1])*10n**BigInt(p.minorDigits)+BigInt((m[2]??'').padEnd(p.minorDigits,'0')||'0')).toString();};
+  const unitPrice=amount(f.observedPrice),shipping=amount(f.observedShipping);
+  requireThat(unitPrice!==null,"PRICE_EVIDENCE_MISSING");
+  requireThat(shipping!==null,"SHIPPING_EVIDENCE_MISSING");
+  return {candidateId,name:f.name??candidate.name,quantity,unitPrice,shipping,
+   currency:p.currency,merchant:[...p.allowedMerchants,...p.blockedMerchants].every((x:string)=>x===x.toLowerCase()&&/^[a-z0-9.-]+\.[a-z]{2,}$/.test(x))?sourceMerchant(candidate):null,brand:f.brand??null,rating:f.rating??null,
    sourceUrl:candidate.url,sourceId:candidate.sourceId,fetchedAt:candidate.fetchedAt,
-   amountEvidence:"SIMULATION_INPUT",observedPrice:f.observedPrice??null,mode:"SIMULATION"};
+   amountEvidence:"SOURCE_OBSERVED",sourceHash:candidate.contentHash,mode:"SIMULATION"};
  }
  async evaluate(c:PoolClient,r:any,quote:any,ownReservation="0") {
   const p=(await this.cache.load(r.scope_id,r.policy_version,r.policy_digest)).policy;
@@ -153,6 +156,7 @@ export class Workflow {
    await this.gate(c,initial.scope_id);
    const it=(await c.query("SELECT * FROM purchase_intents WHERE id=$1 FOR UPDATE",[id])).rows[0];
    requireThat(it.state==="NEEDS_RECONFIRMATION"||(['NEEDS_APPROVAL','READY_FOR_TOOL'].includes(it.state)&&new Date(it.expires_at).getTime()<=Date.now()),"INVALID_STAGE");
+   requireThat(it.quote.amountEvidence!=="SOURCE_OBSERVED"||Date.now()-new Date(it.quote.fetchedAt).getTime()<5*60*1000,"PRICE_EVIDENCE_STALE");
    await c.query("UPDATE purchase_intents SET state='NEEDS_RECONFIRMATION',quote_version=quote_version+1,approval=NULL,expires_at=now()+interval '5 minutes' WHERE id=$1",[id]);
    return {quote:it.quote,quoteVersion:it.quote_version+1,generation:it.generation,mode:"SIMULATION"};
   });
@@ -199,8 +203,8 @@ export class Workflow {
   requireThat(r.rowCount,"INVALID_EDIT_SESSION");return {state:"NORMAL"};
  }
 }
-// A page's seller display name is never an authenticated merchant identifier.
-// Marketplace seller identity needs a dedicated verified adapter; unknown stays null.
+// This is the verified source domain, not the marketplace seller's identity.
+// Seller-name policy restrictions fail closed until a dedicated seller adapter exists.
 export function sourceMerchant(candidate:any):string|null {
  return candidate.verifiedMerchantHost??null;
 }

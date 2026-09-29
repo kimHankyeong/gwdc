@@ -5,6 +5,7 @@ import { load } from "cheerio";
 import ipaddr from "ipaddr.js";
 import { AppError,requireThat } from "./errors.js";
 import {boundedText} from './httpBody.js';
+export const defaultProductHosts='www.11st.co.kr,www.ikea.com';
 export function publicAddress(address:string) {
  try { const ip=ipaddr.process(address);return ip.range()==="unicast"; }catch{return false;}
 }
@@ -35,7 +36,7 @@ export async function safeHttp(raw:string,allowed:Set<string>,redirects=0):Promi
   req.on("close",()=>clearTimeout(timer));req.on("error",reject);
  });
 }
-export function parseProduct(html:string) {
+export function parseProduct(html:string,sourceUrl?:string) {
  const $=load(html);const found:any[]=[];
  function visit(node:any){if(!node||typeof node!=="object")return;
   if(Array.isArray(node))return node.forEach(visit);
@@ -48,12 +49,18 @@ export function parseProduct(html:string) {
  // Ambiguous variants and ranges cannot be treated as a selected quote.
  const o=offers.length===1?offers[0]:null;
  const rating=p.aggregateRating;
+ const shippingDetails=Array.isArray(o?.shippingDetails)?o.shippingDetails:[o?.shippingDetails];
+ const shippingRate=shippingDetails.length===1?shippingDetails[0]?.shippingRate:null;
+ const freeShipping=sourceUrl&&new URL(sourceUrl).hostname==='www.11st.co.kr'&&/^배송비\s*무료배송/.test($('.delivery > dt').first().text().replace(/\s+/g,' ').trim());
  return {
   name:typeof p.name==="string"?p.name.slice(0,300):null,
   merchant:typeof o?.seller?.name==="string"?o.seller.name.slice(0,200):null,
   brand:typeof p.brand==="string"?p.brand:typeof p.brand?.name==="string"?p.brand.name:null,
   observedPrice:typeof o?.price==="string"||typeof o?.price==="number"?String(o.price):null,
   currency:typeof o?.priceCurrency==="string"?o.priceCurrency:null,
+  observedShipping:typeof shippingRate?.value==="string"||typeof shippingRate?.value==="number"?String(shippingRate.value):freeShipping?'0':null,
+  shippingCurrency:typeof shippingRate?.currency==="string"?shippingRate.currency:freeShipping?o?.priceCurrency??null:null,
+  shippingEvidence:freeShipping?'11ST_PAGE_FREE_SHIPPING':shippingRate?'SCHEMA_ORG':null,
   rating: rating && Number(rating.bestRating??5)===5 && Number.isFinite(Number(rating.ratingValue)) &&
    Number(rating.ratingValue)>=0 && Number(rating.ratingValue)<=5 ? Number(rating.ratingValue):null,
   reviewCount: rating && Number.isSafeInteger(Number(rating.reviewCount??rating.ratingCount))?Number(rating.reviewCount??rating.ratingCount):null
@@ -87,15 +94,16 @@ export class SearchService {
    for(const item of result.results){
     if(typeof item.href!=="string"||typeof item.title!=="string")continue;
     let parsed:URL;try{parsed=new URL(item.href);}catch{continue;}
-    if(!['https:','http:'].includes(parsed.protocol)||parsed.username||parsed.password)continue;
+    if(parsed.protocol!=='https:'||parsed.username||parsed.password||!this.allowed.has(parsed.hostname.toLowerCase()))continue;
     const c:any={id:randomUUID(),name:item.title.slice(0,300),url:item.href,sourceId:randomUUID(),
       fetchedAt:new Date().toISOString(),evidenceType:"SEARCH_SNIPPET",fields:null,sourceError:null};
-    try { const src=await safeHttp(item.href,this.allowed);c.fields=parseProduct(src.text);
+    try { const src=await safeHttp(item.href,this.allowed);c.fields=parseProduct(src.text,src.url);
      c.url=src.url;c.contentHash=src.hash;c.parserVersion="jsonld-product-v1";
      c.evidenceType=c.fields?"HTML_OBSERVATION":"SEARCH_SNIPPET";
+     if(c.fields)c.verifiedMerchantHost=new URL(src.url).hostname.toLowerCase();
      if(!c.fields)c.sourceError="UNSUPPORTED_SOURCE";
     }catch(e){c.sourceError=e instanceof AppError?e.code:"SOURCE_UNAVAILABLE";}
-    candidates.push(c);
+    if(c.fields?.observedPrice!=null&&c.fields?.currency)candidates.push(c);
    }
    let nextCursor:string|null=null;
    if(result.results.length===10&&offset<9){

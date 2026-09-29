@@ -9,7 +9,7 @@ import { z,ZodError } from "zod";
 import { Database } from "./db.js";
 import { PolicyCache } from "./policy.js";
 import { PythonEvaluator } from "./python.js";
-import { SearchService } from "./search.js";
+import { SearchService,defaultProductHosts } from "./search.js";
 import { Workflow } from "./workflow.js";
 import { KilnClient } from "./kiln.js";
 import { Agent } from "./agent.js";
@@ -66,9 +66,8 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  app.post("/api/agent/runs",async req=>flow.start(req.owner,req.body));
  app.get<{Params:{id:string}}>("/api/agent/runs/:id",async req=>flow.run(req.owner,req.params.id));
  app.post<{Params:{id:string}}>("/api/agent/runs/:id/resume",async req=>agent.resume(req.owner,req.params.id));
- const simulation=z.object({candidateId:id,unitPrice:money,shipping:money}).strict();
  const event=z.object({eventId:id,expectedVersion:z.number().int().positive(),type:z.enum(["ANSWER","RETRY","CANCEL"]),
-  payload:z.object({query:z.string().min(1).max(600).optional(),maxTotal:money.optional(),quantity:z.number().int().min(1).max(100000).optional(),requiredName:z.string().max(300).optional(),simulation:simulation.optional()}).strict().default({})}).strict();
+  payload:z.object({query:z.string().min(1).max(600).optional(),maxTotal:money.optional(),quantity:z.number().int().min(1).max(100000).optional(),requiredName:z.string().max(300).optional()}).strict().default({})}).strict();
  app.post<{Params:{id:string}}>("/api/agent/runs/:id/events",async req=>flow.event(req.owner,req.params.id,event.parse(req.body)));
  app.post<{Params:{id:string}}>("/api/agent/runs/:id/constraint-approvals",async req=>flow.approveConstraints(req.owner,req.params.id,z.object({constraintVersion:z.number().int().positive(),policyDigest:z.string().length(64),trackEvidenceIds:z.array(id).min(1).max(20)}).strict().parse(req.body)));
  app.post<{Params:{id:string}}>("/api/purchase-intents/:id/approvals",async req=>flow.approvePurchase(req.owner,req.params.id,z.object({quoteVersion:z.number().int().positive(),expectedGeneration:z.number().int().positive(),mode:z.literal("SIMULATION"),requestKey:id}).strict().parse(req.body)));
@@ -77,6 +76,8 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  app.get<{Params:{id:string}}>("/api/receipts/:id/audit",async req=>flow.receipt(req.owner,req.params.id,true));
  app.get("/api/receipts",async req=>(await flow.db.pool.query("SELECT id,data,created_at FROM receipts WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 100",[req.owner])).rows);
  app.get('/api/audits',async req=>(await flow.db.pool.query("SELECT r.id,r.created_at,r.data->'quote'->>'name' AS name,COALESCE(j.state,'PENDING') AS state,j.report FROM receipts r LEFT JOIN audit_jobs j ON j.receipt_id=r.id WHERE r.owner_id=$1 ORDER BY r.created_at DESC LIMIT 50",[req.owner])).rows);
+ app.get('/api/wallet',async req=>{const row=(await flow.db.pool.query("SELECT address,funded_at,funding_checked_at FROM owner_wallets WHERE owner_id=$1",[req.owner])).rows[0];if(row)return {state:'ACTIVE',address:row.address,funded:!!row.funded_at&&new Date(row.funded_at).getTime()>Date.now()-300000,checkedAt:row.funding_checked_at};return {state:(await flow.db.pool.query("SELECT 1 FROM wallet_requests WHERE owner_id=$1",[req.owner])).rowCount?'REQUESTED':'NONE'};});
+ app.post('/api/wallet',async req=>{await flow.db.pool.query("INSERT INTO wallet_requests(owner_id) SELECT $1 WHERE NOT EXISTS(SELECT 1 FROM owner_wallets WHERE owner_id=$1) ON CONFLICT(owner_id) DO NOTHING",[req.owner]);return {state:'REQUESTED'};});
  app.post("/api/policy-edit-sessions",async req=>flow.enterPolicyEdit(req.owner,z.object({scopeId:id}).strict().parse(req.body).scopeId));
  app.post<{Params:{id:string}}>("/api/policy-edit-sessions/:id/publish",async req=>{
   const a=z.object({scopeId:id,baseVersion:z.number().int().positive(),draft:z.unknown(),approvedDigest:z.string().length(64)}).strict().parse(req.body);
@@ -91,7 +92,7 @@ export async function runtime(env=process.env){
  const publisher=env.SERVICE_ROLE==="policy-admin"?new Database(env.DATABASE_URL):null;
  const policyRoot=path.resolve(root,env.POLICY_BUNDLE_ROOT??"policies");
  const flow=new Workflow(db,new PolicyCache(policyRoot,"python-v1:tools-v1:prompt-v1:"+env.KILN_MODEL),new PythonEvaluator(env.PYTHON_BIN??"python",root),
-  new SearchService(env.SEARCH_API_URL,new Set((env.SOURCE_ALLOWED_HOSTS??"").split(",").filter(Boolean))),policyRoot,publisher);
+  new SearchService(env.SEARCH_API_URL,new Set((env.SOURCE_ALLOWED_HOSTS??defaultProductHosts).split(",").map(s=>s.trim().toLowerCase()).filter(Boolean))),policyRoot,publisher);
  const agent=new Agent(flow,new KilnClient(env));const app=createApp(flow,agent,env);
  const purchase=new PurchaseWorker(flow),audit=new AuditWorker(db,root,env);let busy=false;
  let healthBusy=false;

@@ -68,7 +68,7 @@ export class Agent {
       result=pause?{status:"BLOCKED",reasonCodes:["DEFERRED_WITHOUT_EXECUTION"]}:await this.execute(owner,runId,call.function.name,JSON.parse(call.function.arguments));
      }catch(e){
       const code=e instanceof AppError?e.code:"INVALID_TOOL_ARGUMENTS";
-      result={status:"BLOCKED",reasonCodes:[code],retryable:false,...(code==="SEARCH_SCOPE_MISMATCH"?{correction:"Copy input.query exactly, or propose constraints first and copy constraints.query exactly."}:code==="SIMULATION_INPUT_COMPLETE"?{correction:"No missing user input. Propose exact HardInput constraints if missing, then evaluate_policy with input.simulation.candidateId. SOURCE_NOT_ALLOWED is not a policy denial."}:{})};
+      result={status:"BLOCKED",reasonCodes:[code],retryable:false,...(code==="SEARCH_SCOPE_MISMATCH"?{correction:"Copy input.query exactly, or propose constraints first and copy constraints.query exactly."}:code.startsWith('PRICE_')||code.startsWith('SHIPPING_')?{correction:"Use only a fresh merchant-page price and shipping observation in the policy currency. Ask for a different product when evidence is missing; never invent an amount."}:{})};
       if(code!=="SEARCH_SCOPE_MISMATCH"&&/^(SEARCH_|SOURCE_|KILN_|AUDIT_NOT_READY|AUDIT_UNSUPPORTED|COMPUTE_BUSY)/.test(code)){
        await this.flow.db.pool.query("UPDATE agent_runs SET state='ACTION_REQUIRED',error_code=$2,version=version+1 WHERE id=$1 AND active",[runId,code]);pause=true;
       }
@@ -118,13 +118,13 @@ export class Agent {
    requireThat(!stages[name]||stages[name].includes(r.state),"INVALID_STAGE");
    const p=this.flow.cache.require(r.scope_id,r.policy_version,r.policy_digest).policy;
    if(name==="ask_clarification"){
-    requireThat(!(r.track==='HardInput'&&r.input.maxTotal&&r.input.quantity&&r.input.simulation),'SIMULATION_INPUT_COMPLETE');
     // Do not show a different-language fallback as if it answered a Korean request.
     if(/[가-힣]/.test(r.input.query)&&args.questions.some((q:string)=>!/[가-힣]/.test(q)))
      args={questionKey:"purchase_details",questions:["구매할 내용과 예산·수량을 아래 입력란에서 확인해 주세요."]};
     // Missing source observations are not a policy merchant denial. Explain the actual next action.
-    if(!r.input.simulation&&(await c.query("SELECT 1 FROM candidates WHERE run_id=$1 LIMIT 1",[runId])).rowCount)
-     args={questionKey:"simulation_quote",questions:["검색 후보를 선택하고 모의 단가와 배송비를 입력해 주세요. 원문 수집 미허용이나 가격 미확인은 정책상 판매처 차단을 뜻하지 않습니다. 모의 입력 후 별도로 정책을 평가합니다."]};
+    const found=(await c.query("SELECT data FROM candidates WHERE run_id=$1",[runId])).rows;
+    if(found.length&&!found.some(x=>x.data.fields?.observedPrice!=null&&x.data.fields?.observedShipping!=null))
+     args={questionKey:"source_price",questions:["현재 검색 결과는 가격 또는 배송비가 확인되지 않아 구매 계산을 할 수 없습니다. 다른 상품명으로 다시 검색해 주세요."]};
     await c.query("UPDATE agent_runs SET question=$2,state='NEEDS_INPUT',version=version+1 WHERE id=$1",[runId,args]);
     return {status:"NEEDS_INPUT",data:args};
    }
@@ -162,7 +162,7 @@ export class Agent {
     return {status:"OK",data:{evaluations:results,permittedOrder:rank.candidateIds}};
    }
    if(name==="prepare_purchase"){
-    requireThat(await this.flow.auditReady(c),"AUDIT_NOT_READY",503);
+    requireThat(await this.flow.auditReady(c,owner),"AUDIT_NOT_READY",503);
     requireThat(r.constraint_approval?.version===r.constraint_version,"CONSTRAINT_APPROVAL_REQUIRED");
     requireThat(p.currency==="KRW"&&p.minorDigits===0&&p.minimumReviewScore===null,"AUDIT_UNSUPPORTED");
     const quote=await this.flow.quote(c,r,args.candidateId,args.quantity);
@@ -186,7 +186,7 @@ export class Agent {
     const it=(await c.query("SELECT * FROM purchase_intents WHERE id=$1 AND run_id=$2 AND owner_id=$3 FOR UPDATE",[args.intentId,runId,owner])).rows[0];
     requireThat(it,"NOT_FOUND",404);
     if(it.state==="COMMITTED"||it.state==="PROCESSING")return {status:"OK",data:{state:it.state,intentId:it.id}};
-    requireThat(await this.flow.auditReady(c),"AUDIT_NOT_READY",503);
+    requireThat(await this.flow.auditReady(c,owner),"AUDIT_NOT_READY",503);
     requireThat(it.state==="READY_FOR_TOOL"&&it.approval?.generation===it.generation&&it.approval?.quoteVersion===it.quote_version,"PURCHASE_APPROVAL_REQUIRED");
     if(new Date(it.expires_at).getTime()<=Date.now()){
      await c.query("UPDATE purchase_intents SET state='NEEDS_RECONFIRMATION' WHERE id=$1",[it.id]);

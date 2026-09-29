@@ -40,6 +40,14 @@ test("HTML extraction does not fabricate missing price, shipping or reviews",()=
  const p=parseProduct('<script type="application/ld+json">{"@type":"Product","name":"A"}</script>');
  assert.equal(p?.observedPrice,null);assert.equal(p?.rating,null);
  assert.equal(parseProduct('<script type="application/ld+json">[{"@type":"Product"},{"@type":"Product"}]</script>'),null);
+ const priced=parseProduct('<script type="application/ld+json">{"@type":"Product","name":"A","offers":{"price":"12000","priceCurrency":"KRW","shippingDetails":{"shippingRate":{"value":"0","currency":"KRW"}}}}</script>');
+ assert.equal(priced?.observedPrice,'12000');assert.equal(priced?.observedShipping,'0');
+});
+test("General web pages never enter product search results",async()=>{
+ const original=globalThis.fetch;
+ try{globalThis.fetch=async()=>new Response(JSON.stringify({provider:'ddgs',backend:'duckduckgo',results:[{title:'Wikipedia',href:'https://en.wikipedia.org/wiki/Product'}]}));
+  assert.deepEqual(await new SearchService('http://127.0.0.1:4479',new Set(['shop.example'])).search('상품'),[]);
+ }finally{globalThis.fetch=original;}
 });
 test("No missing Kiln key or provider cache guarantee falls back to a fake response",async()=>{
  await assert.rejects(()=>new KilnClient({}).generate("policy",[]),/KILN_NOT_CONFIGURED/);

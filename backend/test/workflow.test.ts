@@ -14,6 +14,7 @@ import { SearchService } from "../src/search.js";
 import { Agent } from "../src/agent.js";
 import { KilnClient } from "../src/kiln.js";
 import { PurchaseWorker } from "../src/purchaseWorker.js";
+import { AuditWorker } from "../src/auditWorker.js";
 import { createApp } from "../src/server.js";
 const root=path.resolve(import.meta.dirname,"../..");
 test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy exclusion",async()=>{
@@ -31,6 +32,7 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  await writeFile(path.join(policyDir,"scope","1","policy.json"),canonical(policy));
  await db.pool.query("INSERT INTO policy_scopes(id,owner_id,mode,active_version) VALUES('scope','alice','NORMAL',1)");
  await db.pool.query(await readFile(path.join(root,"backend/src/db/002_roles.sql"),"utf8"));
+ await db.pool.query(await readFile(path.join(root,"backend/src/db/005_wallets.sql"),"utf8"));
  await db.tx(async c=>{await c.query("SET LOCAL ROLE team11_agent");await c.query("SELECT * FROM policy_scopes FOR UPDATE");});
  await assert.rejects(()=>db!.tx(async c=>{await c.query("SET LOCAL ROLE team11_agent");await c.query("UPDATE policy_scopes SET active_version=99");}),/permission denied/);
  await db.pool.query("INSERT INTO policy_versions(scope_id,version,digest,policy) VALUES('scope',1,$1,$2)",[digest(policy),policy]);
@@ -44,9 +46,19 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  const http=createApp(flow,agent,{AUTH_TOKEN_HASHES:JSON.stringify({alice:createHash('sha256').update(aliceToken).digest('hex'),bob:createHash('sha256').update(bobToken).digest('hex')})});
  assert.equal((await http.inject({url:"/api/scopes"})).statusCode,401);
  assert.equal((await http.inject({url:"/api/agent/runs/"+started.runId,headers:{authorization:"Bearer "+bobToken}})).statusCode,404);
+ assert.equal((await http.inject({url:'/api/wallet',headers:{authorization:'Bearer '+bobToken}})).json().state,'NONE');
+ await http.inject({method:'POST',url:'/api/wallet',headers:{authorization:'Bearer '+aliceToken},payload:{}});
+ assert.equal((await http.inject({url:'/api/wallet',headers:{authorization:'Bearer '+bobToken}})).json().state,'NONE');
  assert.equal((await http.inject({method:"POST",url:"/api/agent/runs",headers:{authorization:"Bearer "+aliceToken},payload:{scopeId:"scope",track:"invalid",input:{}}})).statusCode,400);
  const bursts=await Promise.all(Array.from({length:200},(_,i)=>http.inject({url:"/api/scopes",headers:{authorization:"Bearer "+(i%2?aliceToken:bobToken)}})));
- assert.ok(bursts.every(r=>r.statusCode===200));await http.close();
+ assert.ok(bursts.every(r=>r.statusCode===200));
+ const walletWorker=new AuditWorker(db,root,{TRACK_RPC_URL:'https://rpc.example',TRACK_VERIFY_RPC_URL:'https://other.example',WALLET_MASTER_KEY:randomBytes(32).toString('hex')});
+ assert.equal(await walletWorker.tick(),true);
+ const personalWallet=(await http.inject({url:'/api/wallet',headers:{authorization:'Bearer '+aliceToken}})).json();
+ assert.equal(personalWallet.state,'ACTIVE');assert.match(personalWallet.address,/^0x[0-9a-fA-F]{40}$/);
+ assert.equal('encrypted_key' in personalWallet,false);
+ assert.equal((await http.inject({url:'/api/wallet',headers:{authorization:'Bearer '+bobToken}})).json().state,'NONE');
+ await http.close();
  await assert.rejects(()=>flow.run("bob",started.runId),/NOT_FOUND/);
  await assert.rejects(()=>flow.enterPolicyEdit("alice","scope"),/POLICY_BUSY/);
  // Model fixture: recover scope mismatch once, then stop on real provider configuration failure.
@@ -60,10 +72,10 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  await agent.execute("alice",started.runId,"propose_purchase_constraints",{baseVersion:0,constraints:{query:"상품",maxTotal:"5000",quantity:1,excludedBrands:[]}});
  const examples=await agent.execute("alice",started.runId,"simulate_policy",{constraintVersion:1});
  const run=await flow.run("alice",started.runId);
- await db.pool.query("INSERT INTO candidates VALUES('candidate',$1,$2)",[started.runId,{id:"candidate",name:"상품",url:"https://example.com/product",sourceId:"source",fetchedAt:new Date().toISOString(),fields:null}]);
+ await db.pool.query("INSERT INTO candidates VALUES('candidate',$1,$2)",[started.runId,{id:"candidate",name:"상품",url:"https://example.com/product",sourceId:"source",fetchedAt:new Date().toISOString(),evidenceType:"HTML_OBSERVATION",contentHash:"a".repeat(64),verifiedMerchantHost:"example.com",fields:{name:"상품",observedPrice:"1000",currency:"KRW",observedShipping:"0",shippingCurrency:"KRW"}}]);
  await agent.execute("alice",started.runId,"ask_clarification",{questionKey:"untrusted-explanation",questions:["판매처가 차단되었습니다"]});
- assert.equal((await flow.run("alice",started.runId)).question.questionKey,'simulation_quote');
- await flow.event("alice",started.runId,{eventId:"input",expectedVersion:(await flow.run("alice",started.runId)).version,type:"ANSWER",payload:{simulation:{candidateId:"candidate",unitPrice:"1000",shipping:"0"}}});
+ assert.equal((await flow.run("alice",started.runId)).question.questionKey,'untrusted-explanation');
+ await flow.event("alice",started.runId,{eventId:"input",expectedVersion:(await flow.run("alice",started.runId)).version,type:"ANSWER",payload:{}});
  await flow.approveConstraints("alice",started.runId,{constraintVersion:1,policyDigest:digest(policy),trackEvidenceIds:examples.data.examples.map((e:any)=>e.id)});
  await assert.rejects(()=>agent.execute("alice",started.runId,"prepare_purchase",{constraintVersion:1,candidateId:"candidate",quantity:1}),/AUDIT_NOT_READY/);
  assert.equal((await db.pool.query("SELECT count(*) FROM purchase_intents")).rows[0].count,"0");
@@ -72,6 +84,7 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  await db.pool.query("UPDATE service_health SET checked_at=now()-interval '61 seconds'");
  assert.equal(await flow.auditReady(),false);
  await db.pool.query("UPDATE service_health SET checked_at=now()");
+ await db.pool.query("UPDATE owner_wallets SET funded_at=now(),funding_checked_at=now() WHERE owner_id='alice'");
  const prepared=await agent.execute("alice",started.runId,"prepare_purchase",{constraintVersion:1,candidateId:"candidate",quantity:1});
  const intentId=prepared.data.intentId;
  await assert.rejects(()=>agent.execute("alice",started.runId,"ask_clarification",{questionKey:"wrong-stage",questions:["질문"]}),/INVALID_STAGE/);
@@ -98,10 +111,7 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  const second=await flow.start("alice",{scopeId:"scope",track:"HardInput",input:{query:"상품",maxTotal:"5000",quantity:1}});
  await agent.execute("alice",second.runId,"propose_purchase_constraints",{baseVersion:0,constraints:{query:"상품",maxTotal:"5000",quantity:1,excludedBrands:[]}});
  await assert.rejects(()=>agent.execute("alice",second.runId,"simulate_policy",{constraintVersion:1}),/INVALID_TRACK/);
- await db.pool.query("INSERT INTO candidates VALUES('candidate2',$1,$2)",[second.runId,{id:"candidate2",name:"상품",url:"https://example.com/product",sourceId:"source2",fetchedAt:new Date().toISOString(),fields:null}]);
- const secondState=await flow.run("alice",second.runId);
- await flow.event("alice",second.runId,{eventId:"input2",expectedVersion:secondState.version,type:"ANSWER",payload:{simulation:{candidateId:"candidate2",unitPrice:"1000",shipping:"0"}}});
- await assert.rejects(()=>agent.execute('alice',second.runId,'ask_clarification',{questionKey:'source-denial',questions:['판매처 제한을 해제할까요?']}),/SIMULATION_INPUT_COMPLETE/);
+ await db.pool.query("INSERT INTO candidates VALUES('candidate2',$1,$2)",[second.runId,{id:"candidate2",name:"상품",url:"https://example.com/product",sourceId:"source2",fetchedAt:new Date().toISOString(),evidenceType:"HTML_OBSERVATION",contentHash:"b".repeat(64),verifiedMerchantHost:"example.com",fields:{name:"상품",observedPrice:"1000",currency:"KRW",observedShipping:"0",shippingCurrency:"KRW"}}]);
  const coldFlow=new Workflow(db,new PolicyCache('', 'cold',async(scope,version)=>(await db!.pool.query('SELECT policy FROM policy_versions WHERE scope_id=$1 AND version=$2',[scope,version])).rows[0].policy),flow.python,flow.search,'',null,'database');
  await db.tx(async c=>{const r=await coldFlow.ownedRun(c,second.runId,'alice');const q=await coldFlow.quote(c,r,'candidate2',1);assert.equal((await coldFlow.evaluate(c,r,q)).allowed,true);});
  const evaluated=await agent.execute("alice",second.runId,"evaluate_policy",{constraintVersion:1,candidateIds:["candidate2"]});

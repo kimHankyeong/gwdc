@@ -7,6 +7,7 @@ export const messages:Record<string,string>={INVALID_ACCOUNT_ID:'아이디를 �
  SERVICE_UNAVAILABLE:'서비스에 연결하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.',
  SEARCH_NOT_CONFIGURED:'검색 API 연결이 필요합니다. 관리자 설정 후 다시 시도해 주세요.',
  SEARCH_UNAVAILABLE:'검색 서비스가 응답하지 않습니다.',SEARCH_INVALID_RESPONSE:'검색 응답을 검증하지 못해 중단했습니다. 후보를 임의로 생성하지 않습니다.',
+ PRICE_EVIDENCE_MISSING:'판매 페이지에서 실제 가격을 확인하지 못했습니다. 다른 상품을 검색해 주세요.',PRICE_EVIDENCE_STALE:'가격 확인 시각이 지났습니다. 다시 검색해 주세요.',PRICE_CURRENCY_MISMATCH:'상품 가격 또는 배송비 통화가 정책과 다릅니다.',SHIPPING_EVIDENCE_MISSING:'배송비를 확인하지 못해 합계를 계산할 수 없습니다. 다른 상품을 검색해 주세요.',
  AUDIT_NOT_READY:'감사 연결이 준비되지 않아 모의 주문을 진행할 수 없습니다. RPC·테스트 자금·감사 Worker를 확인해 주세요.',
  AUDIT_UNSUPPORTED:'현재 감사는 KRW 단일 품목·리뷰 비필수 정책만 지원합니다.',
  POLICY_ADMIN_UNAVAILABLE:'정책 관리 서비스에 연결할 수 없습니다. 관리자에게 연결을 요청해 주세요.',

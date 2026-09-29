@@ -1,0 +1,28 @@
+{
+  "scope": "SIMULATION order; real Sepolia audit; no proof of real purchase",
+  "sourceMode": "SIMULATION",
+  "chainMode": "SEPOLIA_REAL",
+  "verification": "verified",
+  "requestId": "team11-sepolia-proof-20260929",
+  "chainId": "11155111",
+  "signer": "0x7bea9B99f1C9119e1BFe799512a736C20d06BD53",
+  "contractAddress": "0x905C64BdbEc126870f2E11C75CCAB7385dB31EE6",
+  "deploymentTxHash": "0xcc2c5951939d3433b3330fb41c502ace4135aeca9e0839d5f7cc13dc7668a31a",
+  "txHash": "0x95577b0ec76a69c15989f226514c845794d574718afb446389a8b8b022ca4230",
+  "purchaseId": "0x43d553b64cb78f0e404d8f34f694aba22e804818c094dd923b26091957e5fe82",
+  "policyHash": "0x5778b10dd8b4bc4c0bbbf2ea1d24c66a46eda660f649656355b337d77473b8b1",
+  "recordHash": "0x1b7ad79a240d331f7b78ecacf36d2eeb658af709d70b565d774b34828d9b9345",
+  "blockNumber": 11808192,
+  "blockHash": "0x3fe6d3ea91b3e6b9d7c493408e622ea47aebed08c243f8c0f4ebf2dc2b309c11",
+  "receiptStatus": 1,
+  "finality": "included",
+  "checks": {
+    "eventMatches": true,
+    "signedIntentVerified": true,
+    "runtimeCodeVerified": true,
+    "independentRpcAgreement": true,
+    "checkpointAuthenticated": true
+  },
+  "explorerUrl": "https://sepolia.etherscan.io/tx/0x95577b0ec76a69c15989f226514c845794d574718afb446389a8b8b022ca4230",
+  "verifiedAt": "2026-09-29T14:38:20.736Z"
+}
