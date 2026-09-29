@@ -1,0 +1,83 @@
+/*
+ * Tailwind CSS v4 테마. 앱의 진입 CSS에서 `@import "tailwindcss";` 다음에 import한다.
+ * 간격은 Tailwind 기본 단위(0.25rem = 4px)를 그대로 쓰고, 짝수 단계(2, 4, 6, 8 …)만 사용해 8pt 그리드를 지킨다.
+ */
+@import url("https://cdn.jsdelivr.net/npm/pretendard@1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --font-mono: "JetBrains Mono", "D2Coding", Consolas, monospace;
+
+  --color-primary-50: #eff5ff;
+  --color-primary-100: #dbe8fe;
+  --color-primary-200: #bfd5fd;
+  --color-primary-300: #93b8fb;
+  --color-primary-400: #6096f6;
+  --color-primary-500: #3b75ee;
+  --color-primary-600: #1f5ad6;
+  --color-primary-700: #1a48b0;
+  --color-primary-800: #1a3d8c;
+  --color-primary-900: #1a356f;
+
+  --color-secondary-50: #f1f5fa;
+  --color-secondary-100: #dde6f1;
+  --color-secondary-300: #9fb2ca;
+  --color-secondary-500: #4a6485;
+  --color-secondary-600: #34506f;
+  --color-secondary-700: #1e3a5f;
+  --color-secondary-800: #152c4a;
+  --color-secondary-900: #0b1b31;
+
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f7f9fc;
+  --color-neutral-100: #eef2f7;
+  --color-neutral-200: #e1e7ef;
+  --color-neutral-300: #c9d2de;
+  --color-neutral-400: #97a3b4;
+  --color-neutral-500: #6b7789;
+  --color-neutral-600: #4e596a;
+  --color-neutral-700: #36414f;
+  --color-neutral-800: #222b37;
+  --color-neutral-900: #121821;
+
+  --color-success-50: #e8f6f0;
+  --color-success-600: #0b7a54;
+  --color-warning-50: #fdf3e6;
+  --color-warning-600: #b45309;
+  --color-danger-50: #fdecee;
+  --color-danger-600: #d1344b;
+  --color-danger-700: #b0263b;
+
+  --text-display: 2rem;
+  --text-display--line-height: 2.5rem;
+  --text-display--font-weight: 700;
+  --text-h1: 1.5rem;
+  --text-h1--line-height: 2rem;
+  --text-h1--font-weight: 700;
+  --text-h2: 1.25rem;
+  --text-h2--line-height: 1.75rem;
+  --text-h2--font-weight: 600;
+  --text-h3: 1.125rem;
+  --text-h3--line-height: 1.5rem;
+  --text-h3--font-weight: 600;
+  --text-body-lg: 1rem;
+  --text-body-lg--line-height: 1.5rem;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.25rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --text-numeric: 1.75rem;
+  --text-numeric--line-height: 2.25rem;
+  --text-numeric--font-weight: 700;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  --shadow-e1: 0 1px 2px rgb(18 24 33 / 6%);
+  --shadow-e2: 0 4px 16px -4px rgb(26 53 111 / 14%);
+  --shadow-e3: 0 16px 40px -8px rgb(26 53 111 / 20%);
+  --shadow-focus: 0 0 0 4px rgb(31 90 214 / 24%);
+  --shadow-focus-danger: 0 0 0 4px rgb(209 52 75 / 20%);
+}
