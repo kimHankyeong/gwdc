@@ -1,6 +1,7 @@
 export const messages:Record<string,string>={
  UNAUTHORIZED:'로그인이 필요합니다.',AUTH_NOT_CONFIGURED:'인증 서비스가 설정되지 않았습니다.',
  LOGIN_FAILED:'이메일과 비밀번호를 확인해 주세요.',SIGNUP_INPUT_REQUIRED:'이메일과 12자 이상의 비밀번호를 입력해 주세요.',SIGNUP_FAILED:'가입 메일을 발송하지 못했습니다. 이메일을 확인하거나 관리자에게 문의해 주세요.',
+ SIGNUP_UNAVAILABLE:'인증 메일 설정 후 회원가입할 수 있습니다.',PASSWORD_MISMATCH:'비밀번호가 일치하지 않습니다.',
  BACKEND_UNAVAILABLE:'서버 연결이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.',AUTH_UNAVAILABLE:'로그인 확인이 지연되고 있습니다.',POLICY_ALREADY_EXISTS:'이미 정책이 있습니다. 페이지를 새로고침하세요.',
  BACKEND_NOT_CONFIGURED:'온라인 실행 서버가 아직 연결되지 않았습니다. 튜토리얼을 먼저 둘러볼 수 있습니다.',
  SERVICE_UNAVAILABLE:'서비스에 연결하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.',

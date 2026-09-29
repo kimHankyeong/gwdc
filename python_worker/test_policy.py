@@ -1,6 +1,10 @@
 import unittest
-from main import evaluate
+from main import evaluate, dispatch
 class PolicyTests(unittest.TestCase):
+ def test_shared_dispatch_ranks_only_allowed_candidates_numerically(self):
+  result=dispatch({'operation':'rank','policy':{'preferLowerPrice':True,'preferHigherReviewScore':False},'results':[{'candidateId':'expensive','allowed':True,'total':'100'},{'candidateId':'cheap','allowed':True,'total':'20'},{'candidateId':'denied','allowed':False,'total':'1'}],'policyDigest':'policy','inputDigest':'input'})
+  self.assertEqual(result['candidateIds'],['cheap','expensive'])
+  self.assertEqual(result['inputDigest'],'input')
  def request(self):
   return {"policy":{"currency":"KRW","minorDigits":0,"maxBudget":"1000","maxPerTransaction":"1000","minimumRemaining":"0","validUntil":"2099-01-01T00:00:00Z","allowedMerchants":[],"blockedMerchants":[],"blockedBrands":[],"minimumReviewScore":None},
    "constraints":{"maxTotal":"1000","quantity":2,"excludedBrands":[]},"facts":{"balance":"1000","spent":"0","reserved":"0","now":"2026-09-29T00:00:00Z","quote":{"quantity":2,"unitPrice":"450","shipping":"100","currency":"KRW","name":"test","merchant":"seller","brand":"brand","rating":None}},

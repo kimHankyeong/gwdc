@@ -1,7 +1,7 @@
 """Private deterministic evaluator and DDGS service. Never merchant ordering."""
 from http.server import BaseHTTPRequestHandler
 import os, json, hmac, threading
-from python_worker.main import evaluate
+from python_worker.main import dispatch
 from ddgs import DDGS
 slots = threading.BoundedSemaphore(2)
 class handler(BaseHTTPRequestHandler):
@@ -22,7 +22,7 @@ class handler(BaseHTTPRequestHandler):
             size=int(self.headers.get('Content-Length','0'))
             if not 0<size<=32768:return self.respond(413,{'error':'INVALID_INPUT'})
             data=json.loads(self.rfile.read(size))
-            if data.get('operation')=='evaluate':result=evaluate(data)
+            if data.get('operation') in ('evaluate','rank'):result=dispatch(data)
             elif data.get('operation')=='search':
                 query=data.get('query','');page=data.get('page',1)
                 if not isinstance(query,str) or not 0<len(query)<=600 or len(query.split())>75 or type(page)!=int or not 1<=page<=10:

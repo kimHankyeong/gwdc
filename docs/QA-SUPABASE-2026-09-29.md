@@ -8,7 +8,7 @@
 - 브라우저 역할 `anon`/`authenticated`의 업무 테이블 접근을 회수하고 RLS를 적용했다. 사용자별 데이터 접근은 서버에서 검증한 Supabase Auth 사용자 ID로 제한한다.
 - Supabase CA와 호스트명을 검증하는 TLS로 transaction pooler에 연결한다. 실행 직렬화는 transaction advisory lock을 사용한다. 세션 advisory lock은 transaction pooler에서 사용하지 않는다.
 - API 요청은 사용자별 분당 120회, Kiln은 프로젝트 전체 분당 50회 및 동시 실행 최대 4개로 제한한다. 이는 200명 동시 LLM 실행을 보장하지 않는다.
-- 공개 회원가입/메일 발송은 사용자 결정에 따라 별도 진행한다. 현재 로그인은 Supabase에 등록되고 이메일 확인된 계정만 지원한다. 기존 Kiln 계정 비밀번호를 재사용하지 않는다.
+- 로그인은 `/login`, 회원가입은 `/signup`의 별도 화면이다. 구매 화면에 인증 폼을 삽입하지 않는다. 공개 회원가입/메일 발송은 사용자 결정에 따라 별도 진행한다. SMTP 설정 후 `VITE_PUBLIC_SIGNUP_ENABLED=true`로 재배포해야 가입 제출이 활성화된다. 현재 로그인은 Supabase에 등록되고 이메일 확인된 계정만 지원한다. 기존 Kiln 계정 비밀번호를 재사용하지 않는다.
 
 ## 확인 결과
 
@@ -20,6 +20,7 @@
 - 기존 보안·PostgreSQL 멱등성/정책 배타 테스트 11개, 추가 Supabase 인증·DB 정책 캐시 테스트 2개 통과.
 - 프론트엔드 번들에 Kiln/DB/Supabase 관리 키가 포함되지 않음을 검사했다.
 - 온라인 Python 계산기: 모의 10,000원은 허용, 30,000원은 TRANSACTION_LIMIT으로 반려됨을 확인했다.
+- 온라인 Python Function에서도 `rank`를 처리하도록 CLI와 동일한 `dispatch`를 사용한다. 반려 후보 제외와 숫자 기준 순위 테스트를 추가했다.
 - 서버 콜드 스타트에서도 DB 정책을 재검증해 견적/평가를 수행하는 테스트를 추가했다. 입력이 모두 있는 HardInput에서 모델이 원문 수집 실패를 이유로 불필요한 정책 완화 질문을 생성하면 도구 실행을 거절한다.
 
 ## 남은 범위

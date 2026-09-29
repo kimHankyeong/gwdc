@@ -39,10 +39,7 @@ def evaluate(req):
             "remaining":str(balance-reserved-total),"policyDigest":req["policyDigest"],
             "inputDigest":req["inputDigest"]}
 
-def main():
-    raw=sys.stdin.buffer.read(262145)
-    if len(raw)>262144: raise ValueError("INPUT_TOO_LARGE")
-    req=json.loads(raw)
+def dispatch(req):
     operation=req.get("operation")
     if operation=="evaluate":
         result=evaluate(req)
@@ -57,7 +54,12 @@ def main():
         result={"allowed":True,"reasonCodes":[],"candidateIds":[r["candidateId"] for r in sorted(permitted,key=order)],
                 "policyDigest":req["policyDigest"],"inputDigest":req["inputDigest"]}
     else: raise ValueError("UNKNOWN_OPERATION")
-    print(json.dumps(result,separators=(",",":")))
+    return result
+
+def main():
+    raw=sys.stdin.buffer.read(262145)
+    if len(raw)>262144: raise ValueError("INPUT_TOO_LARGE")
+    print(json.dumps(dispatch(json.loads(raw)),separators=(",",":")))
 
 if __name__=="__main__":
     try: main()
