@@ -69,7 +69,9 @@ export class Agent {
         await this.flow.db.pool.query("UPDATE agent_runs SET state='ACTION_REQUIRED',error_code=$2,question=NULL,version=version+1 WHERE id=$1 AND active AND input_version=$3 AND constraint_version=$4",[runId,code,run.input_version,run.constraint_version]);
         return {run:await this.flow.run(owner,runId),performed:true,stop:true,found};
        }
-       const question=found.rejectedCandidateCount
+       const question=(found.unverifiedCandidateCount||found.unverifiedSelectionCount)
+        ?{questionKey:"search_source_evidence",questions:["검색 결과는 찾았지만 판매처 원문에서 상품 정보를 확인하지 못했습니다. 승인된 판매처 페이지가 공개되어 있는지 확인하거나 검색어를 구체적으로 바꿔 주세요."]}
+        :found.rejectedCandidateCount
         ?{questionKey:"search_identity_match",questions:["검색 결과에서 요청한 상품명이나 모델 번호와 일치하는 판매 페이지를 찾지 못했습니다. 색상·규격·세대 등 상품 조건을 더 구체적으로 입력해 주세요."]}
         :found.discoveryCount
        ?{questionKey:"search_approved_source",questions:["검색 결과는 있었지만 현재 허용된 판매처에서 확인 가능한 상품 페이지를 찾지 못했습니다. 상품명이나 모델명을 구체적으로 입력해 다시 검색해 주세요."]}
@@ -99,6 +101,10 @@ export class Agent {
      constraintApproval:initial.constraint_approval,evaluations:initial.evaluations,question:initial.question,
      searchStatus:initialSearch.found?{pages:initialSearch.found.pages,queryCount:initialSearch.found.queryCount,
       rejectedCandidateCount:initialSearch.found.rejectedCandidateCount,
+      identityConflictCount:initialSearch.found.identityConflictCount,
+      verifiedCandidateCount:initialSearch.found.verifiedCandidateCount,
+      unverifiedCandidateCount:initialSearch.found.unverifiedCandidateCount,
+      unverifiedSelectionCount:initialSearch.found.unverifiedSelectionCount,
       quoteReadyCount:initialSearch.found.quoteReadyCount,
       relevanceSelectionApplied:initialSearch.found.relevanceSelectionApplied,
       providerFailures:initialSearch.found.providerFailures,

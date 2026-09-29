@@ -67,7 +67,11 @@ export function parseProduct(html:string,sourceUrl?:string) {
  };
 }
 type SearchRow={href:string;title:string;body?:string};
+type IkeaSearchResult={rows:SearchRow[];hasMore:boolean};
 const elevenStreetSearchHost="search.11st.co.kr";
+const ikeaSearchHost="sik.search.blue.cdtapps.com";
+const directSearchHosts=new Set(["www.11st.co.kr","www.ikea.com"]);
+const directSiteFilterHosts=new Set(["11st.co.kr","www.11st.co.kr","m.11st.co.kr","ikea.com","www.ikea.com"]);
 const searchCacheKey=(value:string)=>value.normalize("NFKC").trim().replace(/\s+/gu," ").toLocaleLowerCase("ko-KR");
 const stripSiteFilters=(query:string)=>query.replace(/(?:^|\s)site:[a-z0-9.-]+(?:\/[a-z0-9._~/-]*)?/giu," ").replace(/\s+/gu," ").trim();
 const retailerStopWords=new Set(["11st","11\ubc88\uac00","\ucfe0\ud321","coupang","ikea","\uc774\ucf00\uc544","amazon","korea","krw","price","shipping"]);
@@ -83,6 +87,63 @@ const allowsElevenStreetQuery=(query:string)=>{
  const filters=[...query.matchAll(/(?:^|\s)site:([a-z0-9.-]+)(?:\/[a-z0-9._~/-]*)?(?=\s|$)/giu)];
  return !filters.length||filters.some(match=>["11st.co.kr","www.11st.co.kr","m.11st.co.kr"].includes(match[1].toLowerCase()));
 };
+const allowsIkeaQuery=(query:string)=>{
+ const filters=[...query.matchAll(/(?:^|\s)site:([a-z0-9.-]+)(\/[^\s]*)?(?=\s|$)/giu)];
+ return !filters.length||filters.every(match=>["ikea.com","www.ikea.com"].includes(match[1].toLowerCase())&&
+  (!match[2]||match[2]==="/"||match[2]==="/kr/ko"||match[2].startsWith("/kr/ko/")));
+};
+function parseIkeaSearchResponse(data:any,offset:number):IkeaSearchResult{
+ requireThat(data&&typeof data==="object"&&Array.isArray(data.results)&&data.results.length<=32,"SEARCH_INVALID_RESPONSE");
+ if(!data.results.length)return {rows:[],hasMore:false};
+ const primary=data.results.find((item:any)=>item?.component==="PRIMARY_AREA");
+ requireThat(primary&&Array.isArray(primary.items)&&primary.items.length<=100,"SEARCH_INVALID_RESPONSE");
+ const rows:SearchRow[]=[],seen=new Set<string>();
+ for(const item of primary.items){
+  if(item?.type!=="PRODUCT"||!item.product||typeof item.product!=="object")continue;
+  const product=item.product;
+  if(!/^\d{5,14}$/u.test(String(product.itemNo??product.id??""))||typeof product.pipUrl!=="string"||product.pipUrl.length>4096)continue;
+  try{
+   const url=new URL(product.pipUrl);
+   if(url.protocol!=="https:"||url.hostname.toLowerCase()!=="www.ikea.com"||url.port||url.username||url.password||
+    !/^\/kr\/ko\/p\/[a-z0-9-]+\/?$/iu.test(url.pathname)||seen.has(url.href))continue;
+   const alt=typeof product.mainImageAlt==="string"?product.mainImageAlt.trim():"";
+   const name=typeof product.name==="string"?product.name.trim():"";
+   const measure=typeof product.itemMeasureReferenceText==="string"?product.itemMeasureReferenceText.trim():"";
+   const colors=Array.isArray(product.colors)?product.colors.flatMap((color:any)=>typeof color?.name==="string"?[color.name.trim()]:[]):[];
+   const title=[alt||name,...(!alt?[...colors,measure]:[])].filter(Boolean).join(" ").replace(/\s+/gu," ").slice(0,300);
+   if(!title)continue;
+   seen.add(url.href);rows.push({href:url.href,title});
+   if(rows.length>=10)break;
+  }catch{}
+ }
+ const max=Number(primary.metadata?.max),end=Number(primary.metadata?.end);
+ const hasMore=Number.isSafeInteger(max)&&Number.isSafeInteger(end)&&max>end&&offset<9;
+ return {rows,hasMore};
+}
+async function searchIkeaFirstParty(query:string,offset:number):Promise<IkeaSearchResult>{
+ const addresses=await lookup(ikeaSearchHost,{all:true});
+ requireThat(addresses.length>0&&addresses.every(address=>publicAddress(address.address)),"UNSAFE_SOURCE_ADDRESS",503);
+ const pinned=addresses[0];
+ const url=new URL(`https://${ikeaSearchHost}/kr/ko/search`);url.searchParams.set("c","sr");url.searchParams.set("v","20250507");
+ const body=JSON.stringify({searchParameters:{input:stripSiteFilters(query),type:"QUERY"},allowAutocorrect:true,isUserLoggedIn:false,isB2B:false,
+  components:[{component:"PRIMARY_AREA",columns:2,types:{main:"PRODUCT",breakouts:["PLANNER","CATEGORY","CONTENT","MATTRESS_WARRANTY","FINANCIAL_SERVICES"]},
+   filterConfig:{"subcategories-style":"tree-navigation"},window:{size:10,offset:offset*10}}]});
+ return new Promise((resolve,reject)=>{
+  const req=https.request(url,{method:"POST",headers:{Accept:"application/json","Accept-Encoding":"identity","Content-Type":"application/json","Content-Length":String(Buffer.byteLength(body))},
+   lookup:((_host:any,options:any,callback:any)=>options?.all?callback(null,[pinned]):callback(null,pinned.address,pinned.family)) as any},res=>{
+   if(res.statusCode!==200){res.resume();reject(new AppError(res.statusCode===429?"SEARCH_BUSY":"SEARCH_UNAVAILABLE",503));return;}
+   if(!/^application\/json(?:;|$)/iu.test(res.headers["content-type"]??"")||res.headers["content-encoding"]&&res.headers["content-encoding"]!=="identity"){
+    res.resume();reject(new AppError("SEARCH_INVALID_RESPONSE",503));return;
+   }
+   let bytes=0;const parts:Buffer[]=[];
+   res.on("data",chunk=>{bytes+=chunk.length;if(bytes>2*1024*1024){req.destroy(new AppError("SEARCH_RESPONSE_TOO_LARGE",503));return;}parts.push(chunk);});
+   res.on("error",reject);
+   res.on("end",()=>{try{resolve(parseIkeaSearchResponse(JSON.parse(Buffer.concat(parts).toString("utf8")),offset));}catch(error){reject(error);}});
+  });
+  const timer=setTimeout(()=>req.destroy(new AppError("SEARCH_TIMEOUT",503)),10000);
+  req.on("close",()=>clearTimeout(timer));req.on("error",reject);req.end(body);
+ });
+}
 function elevenStreetProductId(item:any){
  const id=String(item?.id??"");
  if(!/^\d{6,14}$/u.test(id)||typeof item.title!=="string"||!item.title.trim()||item.title.length>1000||
@@ -130,12 +191,14 @@ function parseElevenStreetSearch(html:string,query:string):SearchRow[]{
 }
 export class SearchService {
  private active=0;
- private cursors=new Map<string,{query:string;context:string;offset:number;expires:number}>();
+ private cursors=new Map<string,{query:string;context:string;offset:number;expires:number;ddgs:boolean;ikea:boolean}>();
  private elevenStreetCache=new Map<string,{expires:number;rows:SearchRow[]}>();
  private elevenStreetInFlight=new Map<string,Promise<SearchRow[]>>();
+ private ikeaCache=new Map<string,{expires:number;result:IkeaSearchResult}>();
+ private ikeaInFlight=new Map<string,Promise<IkeaSearchResult>>();
  constructor(private endpoint:string|undefined,private allowed:Set<string>,private internalSecret?:string) {}
  approvedHosts(){return [...this.allowed];}
- configured(){return !!this.endpoint||this.allowed.has("www.11st.co.kr");}
+ configured(){return !!this.endpoint||this.allowed.has("www.11st.co.kr")||this.allowed.has("www.ikea.com");}
  async search(query:string){return (await this.searchPage(query,'direct')).candidates;}
  private async searchElevenStreet(query:string):Promise<SearchRow[]>{
   const searchQuery=stripSiteFilters(query).slice(0,600);if(!searchQuery)return [];
@@ -154,14 +217,35 @@ export class SearchService {
    return rows;
   }finally{if(this.elevenStreetInFlight.get(key)===request)this.elevenStreetInFlight.delete(key);}
  }
+ private async searchIkea(query:string,offset:number):Promise<IkeaSearchResult>{
+  const searchQuery=stripSiteFilters(query).slice(0,600);if(!searchQuery)return {rows:[],hasMore:false};
+  const key=searchCacheKey(searchQuery)+":"+offset,now=Date.now(),cached=this.ikeaCache.get(key);
+  if(cached&&cached.expires>now){this.ikeaCache.delete(key);this.ikeaCache.set(key,cached);return cached.result;}
+  if(cached)this.ikeaCache.delete(key);
+  const pending=this.ikeaInFlight.get(key);if(pending)return pending;
+  const request=searchIkeaFirstParty(searchQuery,offset);
+  this.ikeaInFlight.set(key,request);
+  try{
+   const result=await request;this.ikeaCache.set(key,{expires:Date.now()+(result.rows.length?30000:5000),result});
+   while(this.ikeaCache.size>256)this.ikeaCache.delete(this.ikeaCache.keys().next().value!);
+   return result;
+  }finally{if(this.ikeaInFlight.get(key)===request)this.ikeaInFlight.delete(key);}
+ }
  async searchPage(query:string,context:string,cursor?:string) {
-  requireThat(this.endpoint||this.allowed.has("www.11st.co.kr"),"SEARCH_NOT_CONFIGURED",503);
+  requireThat(this.endpoint||this.allowed.has("www.11st.co.kr")||this.allowed.has("www.ikea.com"),"SEARCH_NOT_CONFIGURED",503);
   requireThat(query.length<=600&&query.trim().split(/\s+/).length<=75,"INVALID_QUERY",400);
   requireThat(this.active<4,"SEARCH_BUSY",429);this.active++;
   try{
    const page=cursor?this.cursors.get(cursor):null;
    requireThat(!cursor||(page&&page.query===query&&page.context===context&&page.expires>Date.now()),'SEARCH_CURSOR_INVALID');
    const offset=page?.offset??0;
+   const siteFilters=[...query.matchAll(/(?:^|\s)site:([a-z0-9.-]+)/giu)].map(match=>match[1].toLowerCase());
+   const searchProviderRequired=!!this.endpoint||(siteFilters.length
+    ?siteFilters.some(host=>!directSiteFilterHosts.has(host))
+    :[...this.allowed].some(host=>!directSearchHosts.has(host)));
+   const searchProviderRequested=searchProviderRequired&&(!cursor||page?.ddgs);
+   const retailerRequested=!cursor&&this.allowed.has("www.11st.co.kr")&&allowsElevenStreetQuery(query);
+   const ikeaRequested=this.allowed.has("www.ikea.com")&&allowsIkeaQuery(query)&&(!cursor||page?.ikea);
    const searchProvider=async()=>{
     requireThat(this.endpoint,"SEARCH_NOT_CONFIGURED",503);
     const url=new URL(this.endpoint!);
@@ -180,14 +264,21 @@ export class SearchService {
     requireThat(parsed.results.every((v:any)=>v&&typeof v.href==='string'&&typeof v.title==='string'&&v.title.length>0&&v.href.length<4096),"SEARCH_INVALID_RESPONSE");
     return parsed;
    };
-   const providerPromise=searchProvider().then(value=>({value,error:null as unknown}),error=>({value:null,error}));
-   const retailerPromise=!cursor&&this.allowed.has("www.11st.co.kr")&&allowsElevenStreetQuery(query)
+    const providerPromise=searchProviderRequested
+     ?searchProvider().then(value=>({value,error:null as unknown}),error=>({value:null,error}))
+     :Promise.resolve({value:null,error:null as unknown});
+   const retailerPromise=retailerRequested
     ?this.searchElevenStreet(query).then(value=>({value,error:null as unknown}),error=>({value:[] as SearchRow[],error}))
     :Promise.resolve({value:[] as SearchRow[],error:null as unknown});
-   const [providerOutcome,retailerOutcome]=await Promise.all([providerPromise,retailerPromise]);
-   const result=providerOutcome.value,elevenStreetRows=retailerOutcome.value;
-   const providerFailures=[providerOutcome.error,retailerOutcome.error].filter(Boolean).map((error:any)=>error instanceof AppError?error.code:"SEARCH_UNAVAILABLE");
-   if(!result&&!elevenStreetRows.length)throw providerOutcome.error??retailerOutcome.error??new AppError("SEARCH_UNAVAILABLE",503);
+    const ikeaPromise=ikeaRequested
+     ?this.searchIkea(query,offset).then(value=>({value,error:null as unknown}),error=>({value:null,error}))
+     :Promise.resolve({value:null,error:null as unknown});
+    const [providerOutcome,retailerOutcome,ikeaOutcome]=await Promise.all([providerPromise,retailerPromise,ikeaPromise]);
+    const result=providerOutcome.value,elevenStreetRows=retailerOutcome.value,ikeaResult=ikeaOutcome.value;
+    const providerFailures=[providerOutcome.error,retailerOutcome.error,ikeaOutcome.error].filter(Boolean).map((error:any)=>error instanceof AppError?error.code:"SEARCH_UNAVAILABLE");
+    const anyProviderSucceeded=!!result||(retailerRequested&&!retailerOutcome.error)||!!ikeaResult;
+    if(!anyProviderSucceeded)
+     throw providerOutcome.error??retailerOutcome.error??ikeaOutcome.error??new AppError("SEARCH_UNAVAILABLE",503);
    const searchRows=result?.results??[];
    const discovery=searchRows.slice(0,8).flatMap((item:any)=>{
      let parsed:URL;try{parsed=new URL(item.href);}catch{return [];}
@@ -195,10 +286,10 @@ export class SearchService {
      return [{host:parsed.hostname.toLowerCase(),approvedSource:this.allowed.has(parsed.hostname.toLowerCase()),
       title:item.title.slice(0,200),snippet:typeof item.body==='string'?item.body.replace(/\s+/g,' ').slice(0,320):''}];
     });
-   const rows:SearchRow[]=[],seenRows=new Set<string>();
-   for(const item of [...elevenStreetRows,...searchRows]){
-    if(seenRows.has(item.href))continue;seenRows.add(item.href);rows.push(item);if(rows.length===10)break;
-   }
+    const rows:SearchRow[]=[],seenRows=new Set<string>(),rowSources=[elevenStreetRows,ikeaResult?.rows??[],searchRows];
+    for(let index=0;rows.length<10&&rowSources.some(source=>index<source.length);index++)for(const source of rowSources){
+     const item=source[index];if(!item||seenRows.has(item.href))continue;seenRows.add(item.href);rows.push(item);if(rows.length===10)break;
+    }
    const inspect=async(item:any)=>{
     if(typeof item.href!=="string"||typeof item.title!=="string")return null;
     let parsed:URL;try{parsed=new URL(item.href);}catch{return null;}
@@ -217,10 +308,12 @@ export class SearchService {
    for(let i=0;i<rows.length;i+=4)
     candidates.push(...(await Promise.all(rows.slice(i,i+4).map(inspect))).filter(Boolean));
    let nextCursor:string|null=null;
-   if(result?.backend==='multi'&&searchRows.length===10&&offset<9){
+    const ddgsHasMore=result?.backend==='multi'&&searchRows.length===10&&offset<9;
+    const ikeaHasMore=!!ikeaResult?.hasMore&&offset<9;
+    if((ddgsHasMore||ikeaHasMore)&&offset<9){
     for(const [k,v] of this.cursors)if(v.expires<Date.now())this.cursors.delete(k);
     if(this.cursors.size>=1000)this.cursors.delete(this.cursors.keys().next().value!);
-    nextCursor=randomUUID();this.cursors.set(nextCursor,{query,context,offset:offset+1,expires:Date.now()+300000});
+     nextCursor=randomUUID();this.cursors.set(nextCursor,{query,context,offset:offset+1,expires:Date.now()+300000,ddgs:!!ddgsHasMore,ikea:ikeaHasMore});
    }
    return {candidates,nextCursor,discovery,partial:!!result?.partial||providerFailures.length>0,
     failedEngines:result?.failedEngines??[],providerFailures};
