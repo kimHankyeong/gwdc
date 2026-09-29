@@ -1,0 +1,9 @@
+node_modules/
+artifacts/
+cache/
+coverage/
+types/
+state/
+.env
+.env.sepolia
+*.tsbuildinfo
