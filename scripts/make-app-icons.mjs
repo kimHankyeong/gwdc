@@ -10,7 +10,7 @@ for(const size of [192,512]){
   const u=x/size,v=y/size;
   const bag=u>.30&&u<.70&&v>.43&&v<.72;
   const handle=(u>.40&&u<.60&&v>.29&&v<.45)&&!(u>.44&&u<.56&&v>.33);
-  raw.set(bag||handle?[245,248,247,255]:[40,91,80,255],y*(1+size*4)+1+x*4);
+  raw.set(bag||handle?[245,248,247,255]:[40,120,237,255],y*(1+size*4)+1+x*4);
  }
  const header=Buffer.alloc(13);header.writeUInt32BE(size);header.writeUInt32BE(size,4);header[8]=8;header[9]=6;
  await writeFile(new URL('../frontend/public/icons/app-'+size+'.png',import.meta.url),Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),chunk('IHDR',header),chunk('IDAT',deflateSync(raw)),chunk('IEND',Buffer.alloc(0))]));
