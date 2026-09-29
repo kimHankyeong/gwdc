@@ -5,8 +5,11 @@ import {mountAppControls} from './pwa';
 import {startTutorial,tutorialOpen} from './tutorial';
 import {authClient} from './auth';
 import {authPage,signupEnabled} from './auth-page';
-import 'pretendard/dist/web/static/pretendard.css';
-import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/latin-400.css';
+import '@fontsource/ibm-plex-sans-kr/400.css';
+import '@fontsource/ibm-plex-sans-kr/600.css';
+import '../../opendesign/design-systems/franchise-procurement/tokens/colors_and_type.css';
+
 
 
 
@@ -85,7 +88,7 @@ function render(){
  mountAppControls();
  if(['/login','/signup'].includes(location.pathname)&&!connected){app.innerHTML=authPage(location.pathname==='/signup',notice,isError);bind();return;}
  if(connected&&['/login','/signup'].includes(location.pathname))window.history.replaceState(null,'','/');
- app.innerHTML=`<div class="app-shell"><aside class="sidebar"><a class="app-brand" href="/" data-auth-route="/">${icon('bag',25)}<span>구매</span></a><nav aria-label="주 메뉴">${[['purchase','구매'],['policy','정책'],['history','기록'],['settings','설정']].map(([id,t])=>`<button data-page="${id}" class="nav-item ${page===id?'active':''}" aria-current="${page===id?'page':'false'}"${dis(id==='policy'&&policy?.busy)}>${icon(id==='purchase'?'home':id==='policy'?'policy':id==='settings'?'settings':'history',23)}<span>${t}</span></button>`).join('')}</nav><p class="sidebar-note">실제 결제 없는<br>구매 시뮬레이션</p></aside><div class="workspace"><header class="topbar"><h1>${page==='purchase'?'구매':page==='policy'?'정책':page==='settings'?'설정':'주문 기록'}</h1><div class="top-actions">${badge('모의 주문','amber')}<button id="${connected?'disconnect':'connection-toggle'}" class="connection-button">${icon('user',18)}${connected?'로그아웃':'로그인'}</button></div></header>${notice?`<div role="${isError?'alert':'status'}" class="notification ${isError?'error':''}">${e(notice)}</div>`:''}
+ app.innerHTML=`<div class="app-shell"><aside class="sidebar"><a class="app-brand" href="/" data-auth-route="/">${icon('bag',25)}<span>구매</span></a><nav aria-label="주 메뉴">${[['purchase','구매'],['policy','정책'],['history','기록'],['settings','설정']].map(([id,t])=>`<button data-page="${id}" class="nav-item ${page===id?'active':''}" aria-current="${page===id?'page':'false'}"${dis(id==='policy'&&policy?.busy)}>${icon(id==='purchase'?'home':id==='policy'?'policy':id==='settings'?'settings':'history',23)}<span>${t}</span></button>`).join('')}</nav><p class="sidebar-note">실제 결제 없는<br>구매 시뮬레이션</p></aside><div class="workspace"><header class="topbar"><div class="page-heading"><h1>${page==='purchase'?'구매':page==='policy'?'정책':page==='settings'?'설정':'주문 기록'}</h1><p class="page-context">실제 결제 없이 정책·요청·감사 기록을 확인합니다.</p></div><div class="top-actions">${badge('모의 주문','amber')}<button id="${connected?'disconnect':'connection-toggle'}" class="connection-button">${icon('user',18)}${connected?'로그아웃':'로그인'}</button></div></header>${notice?`<div role="${isError?'alert':'status'}" class="notification ${isError?'error':''}">${e(notice)}</div>`:''}
 
  ${connected&&scopes.length>1?`<div class="scope-bar"><label for="scope">정책</label><select id="scope"${dis(run?.active||edit)}>${scopes.map(s=>`<option value="${e(s.id)}"${s.id===scope?' selected':''}>${e(s.id)}</option>`).join('')}</select></div>`:''}
  <div class="help-row"><button id="tutorial-launch" class="tutorial-launch" type="button">처음이신가요?</button></div><main>${page==='purchase'&&!connected?guestHome():page==='purchase'?`${policy?`<section class="balance-card surface"><div><span class="overline">모의 잔고</span><strong class="balance-amount">${money(policy.balance?.balance)}</strong></div><span class="icon-tile blue">${icon('wallet',28)}</span><dl><div><dt>예약 중</dt><dd>${money(policy.balance?.reserved)}</dd></div><div><dt>거래 한도</dt><dd>${money(policy.policy.maxPerTransaction)}</dd></div></dl></section>`:''}<div class="content-grid"><div>${run?.active?'':policy?requestForm():`<section class="surface"><h2>구매 정책이 없습니다</h2><button id="go-policy" class="primary">정책 추가하기</button></section>`}${runPanel()}</div><aside class="policy-rail surface ${policyExpanded?'expanded':''}"><button id="policy-expand" class="policy-expand" aria-expanded="${policyExpanded}">정책 · 읽기 전용 <span>${policyExpanded?'−':'+'}</span></button><div class="policy-content">${policySummary()}</div></aside></div>`:page==='policy'?policyPage():page==='settings'?settingsPage():historyPage()}</main></div></div>`;bind();}
