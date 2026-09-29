@@ -10,9 +10,9 @@ test("Malformed search responses fail; a documented empty response remains empty
  const fetchOriginal=globalThis.fetch;
  try {
   globalThis.fetch=async()=>new Response('{}',{status:200});
-  await assert.rejects(()=>new SearchService('fixture',new Set()).search('test'),/SEARCH_INVALID_RESPONSE/);
-  globalThis.fetch=async()=>new Response(JSON.stringify({type:'search',query:{original:'test'}}),{status:200});
-  assert.deepEqual(await new SearchService('fixture',new Set()).search('test'),[]);
+  await assert.rejects(()=>new SearchService('http://127.0.0.1:4479',new Set()).search('test'),/SEARCH_INVALID_RESPONSE/);
+  globalThis.fetch=async()=>new Response(JSON.stringify({provider:'ddgs',backend:'duckduckgo',results:[]}),{status:200});
+  assert.deepEqual(await new SearchService('http://127.0.0.1:4479',new Set()).search('test'),[]);
  }finally{globalThis.fetch=fetchOriginal;}
 });
 import { KilnClient } from "../src/kiln.js";
@@ -61,11 +61,19 @@ test("Unknown policy rules and invalid currency fail closed",()=>{
 test("Search cursors bind query and run context",async()=>{
  const original=globalThis.fetch;const offsets:string[]=[];
  try{
-  globalThis.fetch=async(url)=>{offsets.push(new URL(String(url)).searchParams.get('offset')!);return new Response(JSON.stringify({type:'search',query:{original:'test',more_results_available:true},web:{results:[]}}));};
-  const service=new SearchService('fixture',new Set());const page=await service.searchPage('test','owner:run:1');
+  globalThis.fetch=async(_url,init)=>{offsets.push(String(JSON.parse(String(init?.body)).page));return new Response(JSON.stringify({provider:'ddgs',backend:'duckduckgo',results:Array.from({length:10},(_,i)=>({title:'item '+i,href:'https://example.com/'+i}))}));};
+  const service=new SearchService('http://127.0.0.1:4479',new Set());const page=await service.searchPage('test','owner:run:1');
   assert.ok(page.nextCursor);
   await assert.rejects(()=>service.searchPage('test','other-run',page.nextCursor!),/SEARCH_CURSOR_INVALID/);
   await assert.rejects(()=>service.searchPage('changed','owner:run:1',page.nextCursor!),/SEARCH_CURSOR_INVALID/);
-  await service.searchPage('test','owner:run:1',page.nextCursor!);assert.deepEqual(offsets,['0','1']);
+  await service.searchPage('test','owner:run:1',page.nextCursor!);assert.deepEqual(offsets,['1','2']);
+ }finally{globalThis.fetch=original;}
+});
+
+test("Search endpoint is loopback-only and provider identity cannot switch to Brave",async()=>{
+ await assert.rejects(()=>new SearchService('https://example.com',new Set()).search('test'),/SEARCH_ENDPOINT_INVALID/);
+ const original=globalThis.fetch;try{
+  globalThis.fetch=async()=>new Response(JSON.stringify({provider:'ddgs',backend:'brave',results:[]}));
+  await assert.rejects(()=>new SearchService('http://127.0.0.1:4479',new Set()).search('test'),/SEARCH_INVALID_RESPONSE/);
  }finally{globalThis.fetch=original;}
 });

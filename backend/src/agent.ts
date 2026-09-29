@@ -60,8 +60,8 @@ export class Agent {
       result=pause?{status:"BLOCKED",reasonCodes:["DEFERRED_WITHOUT_EXECUTION"]}:await this.execute(owner,runId,call.function.name,JSON.parse(call.function.arguments));
      }catch(e){
       const code=e instanceof AppError?e.code:"INVALID_TOOL_ARGUMENTS";
-      result={status:"BLOCKED",reasonCodes:[code],retryable:false};
-      if(/^(SEARCH_|SOURCE_|KILN_|AUDIT_NOT_READY|AUDIT_UNSUPPORTED|COMPUTE_BUSY)/.test(code)){
+      result={status:"BLOCKED",reasonCodes:[code],retryable:false,...(code==="SEARCH_SCOPE_MISMATCH"?{correction:"Copy input.query exactly, or propose constraints first and copy constraints.query exactly."}:{})};
+      if(code!=="SEARCH_SCOPE_MISMATCH"&&/^(SEARCH_|SOURCE_|KILN_|AUDIT_NOT_READY|AUDIT_UNSUPPORTED|COMPUTE_BUSY)/.test(code)){
        await this.flow.db.pool.query("UPDATE agent_runs SET state='ACTION_REQUIRED',error_code=$2,version=version+1 WHERE id=$1 AND active",[runId,code]);pause=true;
       }
      }
@@ -113,6 +113,9 @@ export class Agent {
     // Do not show a different-language fallback as if it answered a Korean request.
     if(/[가-힣]/.test(r.input.query)&&args.questions.some((q:string)=>!/[가-힣]/.test(q)))
      args={questionKey:"purchase_details",questions:["구매할 내용과 예산·수량을 아래 입력란에서 확인해 주세요."]};
+    // Missing source observations are not a policy merchant denial. Explain the actual next action.
+    if(!r.input.simulation&&(await c.query("SELECT 1 FROM candidates WHERE run_id=$1 LIMIT 1",[runId])).rowCount)
+     args={questionKey:"simulation_quote",questions:["검색 후보를 선택하고 모의 단가와 배송비를 입력해 주세요. 원문 수집 미허용이나 가격 미확인은 정책상 판매처 차단을 뜻하지 않습니다. 모의 입력 후 별도로 정책을 평가합니다."]};
     await c.query("UPDATE agent_runs SET question=$2,state='NEEDS_INPUT',version=version+1 WHERE id=$1",[runId,args]);
     return {status:"NEEDS_INPUT",data:args};
    }

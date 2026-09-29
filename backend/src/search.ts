@@ -62,36 +62,35 @@ export function parseProduct(html:string) {
 export class SearchService {
  private active=0;
  private cursors=new Map<string,{query:string;context:string;offset:number;expires:number}>();
- constructor(private key:string|undefined,private allowed:Set<string>) {}
- configured(){return !!this.key;}
+ constructor(private endpoint:string|undefined,private allowed:Set<string>) {}
+ configured(){return !!this.endpoint;}
  async search(query:string){return (await this.searchPage(query,'direct')).candidates;}
  async searchPage(query:string,context:string,cursor?:string) {
-  requireThat(this.key,"SEARCH_NOT_CONFIGURED",503);
+  requireThat(this.endpoint,"SEARCH_NOT_CONFIGURED",503);
   requireThat(query.length<=600&&query.trim().split(/\s+/).length<=75,"INVALID_QUERY",400);
   requireThat(this.active<4,"SEARCH_BUSY",429);this.active++;
   try{
    const page=cursor?this.cursors.get(cursor):null;
    requireThat(!cursor||(page&&page.query===query&&page.context===context&&page.expires>Date.now()),'SEARCH_CURSOR_INVALID');
    const offset=page?.offset??0;
-   const url=new URL("https://api.search.brave.com/res/v1/web/search");url.searchParams.set("q",query);url.searchParams.set("count","10");url.searchParams.set('offset',String(offset));url.searchParams.set('country','KR');url.searchParams.set('search_lang','ko');
-   let result:any;
-   for(let attempt=0;attempt<3;attempt++){
-    const response=await fetch(url,{headers:{"X-Subscription-Token":this.key!,Accept:"application/json"},signal:AbortSignal.timeout(10000)});
-    if(response.status===401||response.status===403)throw new AppError("SEARCH_NOT_CONFIGURED",503);
-    if((response.status===429||response.status>=500)&&attempt<2){await new Promise(r=>setTimeout(r,300*(attempt+1)));continue;}
-    requireThat(response.ok,"SEARCH_UNAVAILABLE",503);
-    const text=await boundedText(response,2*1024*1024,"SEARCH_RESPONSE_TOO_LARGE");
-    try{result=JSON.parse(text);}catch{throw new AppError('SEARCH_INVALID_RESPONSE');}break;
-   }
-   requireThat(result&&result.type==="search"&&result.query&&typeof result.query.original==="string"&&
-    (result.web===undefined||Array.isArray(result.web.results)),"SEARCH_INVALID_RESPONSE");
-   requireThat((result.web?.results??[]).every((v:any)=>v&&typeof v.url==="string"&&typeof v.title==="string"),"SEARCH_INVALID_RESPONSE");
+   const url=new URL(this.endpoint!);
+   requireThat(url.protocol==='http:'&&url.hostname==='127.0.0.1'&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname==='/',"SEARCH_ENDPOINT_INVALID");
+   url.pathname='/search/text';
+   let response:Response;
+   try{response=await fetch(url,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({query,page:offset+1}),signal:AbortSignal.timeout(20000)});}
+   catch{throw new AppError('SEARCH_UNAVAILABLE',503);}
+   requireThat(response.ok,response.status===429?'SEARCH_BUSY':'SEARCH_UNAVAILABLE',503);
+   let result:any;try{result=JSON.parse(await boundedText(response,2*1024*1024,'SEARCH_RESPONSE_TOO_LARGE'));}catch(e){if(e instanceof AppError)throw e;throw new AppError('SEARCH_INVALID_RESPONSE');}
+   requireThat(result?.provider==='ddgs'&&result.backend==='duckduckgo'&&Array.isArray(result.results)&&result.results.length<=10,"SEARCH_INVALID_RESPONSE");
+   requireThat(result.results.every((v:any)=>v&&typeof v.href==='string'&&typeof v.title==='string'&&v.title.length>0&&v.href.length<4096),"SEARCH_INVALID_RESPONSE");
    const candidates=[];
-   for(const item of (result.web?.results??[]).slice(0,20)){
-    if(typeof item.url!=="string"||typeof item.title!=="string")continue;
-    const c:any={id:randomUUID(),name:item.title.slice(0,300),url:item.url,sourceId:randomUUID(),
+   for(const item of result.results){
+    if(typeof item.href!=="string"||typeof item.title!=="string")continue;
+    let parsed:URL;try{parsed=new URL(item.href);}catch{continue;}
+    if(!['https:','http:'].includes(parsed.protocol)||parsed.username||parsed.password)continue;
+    const c:any={id:randomUUID(),name:item.title.slice(0,300),url:item.href,sourceId:randomUUID(),
       fetchedAt:new Date().toISOString(),evidenceType:"SEARCH_SNIPPET",fields:null,sourceError:null};
-    try { const src=await safeHttp(item.url,this.allowed);c.fields=parseProduct(src.text);
+    try { const src=await safeHttp(item.href,this.allowed);c.fields=parseProduct(src.text);
      c.url=src.url;c.contentHash=src.hash;c.parserVersion="jsonld-product-v1";
      c.evidenceType=c.fields?"HTML_OBSERVATION":"SEARCH_SNIPPET";
      if(!c.fields)c.sourceError="UNSUPPORTED_SOURCE";
@@ -99,7 +98,7 @@ export class SearchService {
     candidates.push(c);
    }
    let nextCursor:string|null=null;
-   if(result.query.more_results_available===true&&offset<9){
+   if(result.results.length===10&&offset<9){
     for(const [k,v] of this.cursors)if(v.expires<Date.now())this.cursors.delete(k);
     if(this.cursors.size>=1000)this.cursors.delete(this.cursors.keys().next().value!);
     nextCursor=randomUUID();this.cursors.set(nextCursor,{query,context,offset:offset+1,expires:Date.now()+300000});

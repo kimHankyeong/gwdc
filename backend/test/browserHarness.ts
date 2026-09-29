@@ -31,7 +31,7 @@ await db.pool.query("INSERT INTO balances(owner_id,scope_id,currency,balance) VA
 const token=randomBytes(32).toString("base64url");
 await writeFile(path.join(base,"ui-session.json"),JSON.stringify({token}),{mode:0o600});
 const env={...process.env,AUTH_TOKEN_HASHES:JSON.stringify({"browser-test":createHash("sha256").update(token).digest("hex")})};
-const flow=new Workflow(db,new PolicyCache(bundles),new PythonEvaluator(env.PYTHON_BIN??"python",root),new SearchService(env.BRAVE_SEARCH_API_KEY,new Set((env.SOURCE_ALLOWED_HOSTS??" ").split(",").map(s=>s.trim()).filter(Boolean))),bundles,null);
+const flow=new Workflow(db,new PolicyCache(bundles),new PythonEvaluator(env.PYTHON_BIN??"python",root),new SearchService(env.SEARCH_API_URL,new Set((env.SOURCE_ALLOWED_HOSTS??" ").split(",").map(s=>s.trim()).filter(Boolean))),bundles,null);
 const app=createApp(flow,new Agent(flow,new KilnClient(env)),env);
 await app.listen({host:"127.0.0.1",port:4174});
 // Separate HTTP surface in the isolated harness; production uses separate OS/DB users.

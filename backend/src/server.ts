@@ -49,7 +49,7 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
   reply.code(500).send({error:"INTERNAL_ERROR"});
  });
  app.get("/api/health",async()=>({orderMode:"SIMULATION",chainMode:"SEPOLIA_REAL",configured:{
-  kiln:!!env.KILN_API_KEY,search:!!env.BRAVE_SEARCH_API_KEY,auth:Object.keys(tokens).length>0,
+  kiln:!!env.KILN_API_KEY,search:!!env.SEARCH_API_URL,auth:Object.keys(tokens).length>0,
   audit:await flow.auditReady()},capabilities:{audit:await flow.auditReady()?"VERIFIED":"UNAVAILABLE",
   policyAdmin:!!(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='policy-admin' AND state='CONFIGURED' AND checked_at>now()-interval '60 seconds'")).rowCount},notice:"Configuration is not live verification"}));
  app.get("/api/scopes",async(req)=>(await flow.db.pool.query("SELECT id,mode,active_version FROM policy_scopes WHERE owner_id=$1",[req.owner])).rows);
@@ -84,7 +84,7 @@ export async function runtime(env=process.env){
  const publisher=env.SERVICE_ROLE==="policy-admin"?new Database(env.DATABASE_URL):null;
  const policyRoot=path.resolve(root,env.POLICY_BUNDLE_ROOT??"policies");
  const flow=new Workflow(db,new PolicyCache(policyRoot,"python-v1:tools-v1:prompt-v1:"+env.KILN_MODEL),new PythonEvaluator(env.PYTHON_BIN??"python",root),
-  new SearchService(env.BRAVE_SEARCH_API_KEY,new Set((env.SOURCE_ALLOWED_HOSTS??"").split(",").filter(Boolean))),policyRoot,publisher);
+  new SearchService(env.SEARCH_API_URL,new Set((env.SOURCE_ALLOWED_HOSTS??"").split(",").filter(Boolean))),policyRoot,publisher);
  const agent=new Agent(flow,new KilnClient(env));const app=createApp(flow,agent,env);
  const purchase=new PurchaseWorker(flow),audit=new AuditWorker(db,root,env);let busy=false;
  let healthBusy=false;

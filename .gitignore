@@ -28,3 +28,4 @@ blockchain/.env.sepolia
 !**/.env.sepolia.example
 __pycache__/
 *.pyc
+.venv-search/

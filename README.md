@@ -6,7 +6,7 @@
 
 ## 코드 위치
 
-- `backend/src/`: 인증, 정책 버전/캐시, 9개 Tool, Kiln, Brave 검색/안전한 HTML 수집, PostgreSQL 작업/장부, 주문/감사 Worker
+- `backend/src/`: 인증, 정책 버전/캐시, 9개 Tool, Kiln, DDGS 검색/안전한 HTML 수집, PostgreSQL 작업/장부, 주문/감사 Worker
 - `python_worker/`: 고정 JSON 평가기. 금액 계산·Hard 판정·허용 후보 정렬. 생성 코드 실행 금지
 - `frontend/`: 모의 주문 표시, 요청/답변, 조건·최종 승인, 재승인, 별도 정책 편집, 영수증
 - `blockchain/`: **같은 저장소**의 `codex/blockchain-network-boilerplate` cd84fa7 원본. `src/runAudit.mjs`는 명시적 입력을 받는 신규 어댑터
@@ -102,7 +102,7 @@ PostgreSQL 통합 검사는 npm 패키지의 별도 테스트 클러스터를 lo
 - 인증 토큰·API 키·DB 비밀번호·signer는 저장소에 넣지 않습니다.
 - 5,000 사용자/200 동시접속은 목표 검증 조건입니다. DB pool/LLM/검색/Python 동시성 제한은 구현했지만 운영 처리량 보장을 뜻하지 않습니다.
 - 로컬에서 200개 동시 인증 조회를 검증했습니다. 이는 200개 동시 구매/LLM 요청의 처리량 검증이 아닙니다.
-- 실제 Brave 검색과 Sepolia E2E는 해당 자격증명·테스트 자금·출처 구성이 있어야 검증할 수 있습니다. 미설정은 미완료 상태로 표시합니다.
+- 실제 DDGS 검색과 Sepolia E2E는 해당 자격증명·테스트 자금·출처 구성이 있어야 검증할 수 있습니다. 미설정은 미완료 상태로 표시합니다.
 
 ## UI 재설계 및 QA (2026-09-29)
 
@@ -112,3 +112,23 @@ PostgreSQL 통합 검사는 npm 패키지의 별도 테스트 클러스터를 lo
 - 별도 감사 프로세스가 두 HTTPS Sepolia RPC의 체인 ID와 signer 테스트 잔액(각 0.004 ETH 이상)을 검증해 20초마다 heartbeat를 남깁니다. 60초 이내 VERIFIED가 없으면 견적 준비·주문 실행·Worker 차감이 차단됩니다. 준비 확인 이후 장애가 나면 감사 완료를 보장하지는 않으며 작업은 복구 대기합니다.
 - HTML의 판매처 표시명은 신원 증거가 아닙니다. 검증된 판매처 adapter가 없는 현재, 판매처 제한 정책은 MERCHANT_EVIDENCE_MISSING으로 차단됩니다.
 - 검증 결과와 연결 한계: [재설계 QA](docs/QA-REDESIGN-2026-09-29.md).
+
+## 오픈소스 검색 API
+
+- [deedy5/ddgs](https://github.com/deedy5/ddgs), MIT, 버전 9.16.0. Qwen 모델 전용 API가 아니라 서버가 실행하는 `search_products` 도구의 검색 제공자입니다.
+- 현재 Kiln 모델은 qwen3-32b. Brave API와 Brave 엔진은 사용하지 않습니다. DuckDuckGo 엔진을 명시적으로 고정합니다.
+- SearXNG도 검토했으나 현재 Docker 엔진이 동작하지 않아 Python에서 실행 가능한 DDGS를 선택했습니다.
+
+```powershell
+python -m venv .venv-search
+.\.venv-search\Scripts\python.exe -m pip install -r search_service/requirements-lock.txt
+.\.venv-search\Scripts\python.exe -m uvicorn search_service.app:app --host 127.0.0.1 --port 4479 --no-access-log
+```
+
+`.env`에 `SEARCH_API_URL=http://127.0.0.1:4479`를 지정한 뒤 backend를 시작합니다. 검색 API 키는 필요하지 않습니다. SOURCE_ALLOWED_HOSTS는 원문 수집을 허용할 호스트 목록이며, 비어 있으면 실제 검색 제목/URL 후보만 제공하고 원문 필드는 미확인으로 남습니다. 검색 제공자는 상품·판매처 신원 또는 가격 진위를 보증하지 않습니다.
+
+검색 API는 loopback 전용, origin 차단, 본문/결과 크기 제한, 동시 검색 2개, 60초 메모리 캐시(최대 256개), 동일 검색 병합을 적용합니다. `/extract`나 외부 호출자 지정 backend는 제공하지 않습니다. 서버가 결과를 검증한 후 기존 SSRF 보호 수집기로만 원문을 가져옵니다.
+
+이 메타검색 라이브러리는 상위 검색 서비스 상태/제한에 영향을 받으며 200명 동시 검색 처리나 운영 SLA를 보장하지 않습니다. 제한/장애는 429/503으로 차단합니다. 검색 실패를 생성 결과로 채우지 않습니다. 저장소는 교육용 사용을 명시합니다.
+
+실제 검색 검증 결과: [DDGS QA](docs/QA-DDGS-2026-09-29.md).
