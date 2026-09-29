@@ -96,6 +96,9 @@ test("PostgreSQL: isolated approval, atomic simulation, idempotency and policy e
  await db.pool.query("INSERT INTO candidates VALUES('candidate2',$1,$2)",[second.runId,{id:"candidate2",name:"상품",url:"https://example.com/product",sourceId:"source2",fetchedAt:new Date().toISOString(),fields:null}]);
  const secondState=await flow.run("alice",second.runId);
  await flow.event("alice",second.runId,{eventId:"input2",expectedVersion:secondState.version,type:"ANSWER",payload:{simulation:{candidateId:"candidate2",unitPrice:"1000",shipping:"0"}}});
+ await assert.rejects(()=>agent.execute('alice',second.runId,'ask_clarification',{questionKey:'source-denial',questions:['판매처 제한을 해제할까요?']}),/SIMULATION_INPUT_COMPLETE/);
+ const coldFlow=new Workflow(db,new PolicyCache('', 'cold',async(scope,version)=>(await db!.pool.query('SELECT policy FROM policy_versions WHERE scope_id=$1 AND version=$2',[scope,version])).rows[0].policy),flow.python,flow.search,'',null,'database');
+ await db.tx(async c=>{const r=await coldFlow.ownedRun(c,second.runId,'alice');const q=await coldFlow.quote(c,r,'candidate2',1);assert.equal((await coldFlow.evaluate(c,r,q)).allowed,true);});
  const evaluated=await agent.execute("alice",second.runId,"evaluate_policy",{constraintVersion:1,candidateIds:["candidate2"]});
  await flow.approveConstraints("alice",second.runId,{constraintVersion:1,policyDigest:digest(policy),trackEvidenceIds:[evaluated.data.evaluations[0].id]});
  const next=await agent.execute("alice",second.runId,"prepare_purchase",{constraintVersion:1,candidateId:"candidate2",quantity:1});

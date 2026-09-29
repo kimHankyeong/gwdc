@@ -3,11 +3,18 @@ import path from "node:path";
 import { AppError } from "./errors.js";
 export class PythonEvaluator {
   private running = 0;
-  constructor(private executable: string, private root: string) {}
+  constructor(private executable: string, private root: string,private remote?:{url:string;secret:string}) {}
   async evaluate(input: Record<string, unknown>): Promise<any> {
     if (this.running >= 4) throw new AppError("COMPUTE_BUSY",429);
     this.running++;
     try {
+      if(this.remote){
+        const res=await fetch(this.remote.url,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+this.remote.secret},body:JSON.stringify({operation:'evaluate',...input}),signal:AbortSignal.timeout(15000)});
+        if(!res.ok)throw new AppError('EVALUATION_FAILED');
+        const result=await res.json() as any;
+        if(typeof result.allowed!=='boolean'||!Array.isArray(result.reasonCodes)||result.policyDigest!==input.policyDigest||result.inputDigest!==input.inputDigest)throw new AppError('EVALUATION_FAILED');
+        return result;
+      }
       return await new Promise((resolve,reject) => {
         const child = spawn(this.executable, ["-I",path.resolve(this.root,"python_worker/main.py")],
           {shell:false,windowsHide:true,env:{PATH:process.env.PATH,SYSTEMROOT:process.env.SYSTEMROOT}});

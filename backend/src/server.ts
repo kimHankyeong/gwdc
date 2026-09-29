@@ -1,7 +1,6 @@
 import { config as loadEnv } from "dotenv";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
-import staticFiles from "@fastify/static";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { createHash,timingSafeEqual } from "node:crypto";
@@ -18,6 +17,8 @@ import { PurchaseWorker } from "./purchaseWorker.js";
 import { AuditWorker } from "./auditWorker.js";
 import { AppError,requireThat } from "./errors.js";
 import { id,money } from "./schema.js";
+import {supabaseOwner} from './auth.js';
+import {consumeLimit} from './limits.js';
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),"../..");
 loadEnv({path:path.join(ROOT,".env"),quiet:true});
 declare module "fastify" {interface FastifyRequest {owner:string}}
@@ -28,16 +29,20 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  const windows=new Map<string,{at:number,count:number}>();
  app.addHook("onRequest",async(req,reply)=>{
   if(!req.url.startsWith("/api/")||req.url==="/api/health")return;
-  const policyEndpoint=req.url.startsWith("/api/policy-edit-sessions");
+  const policyEndpoint=req.url.startsWith("/api/policy-edit-sessions")||req.url==='/api/setup';
   requireThat(env.SERVICE_ROLE!=="audit","NOT_FOUND",404);
   if(env.SERVICE_ROLE==="policy-admin") requireThat(policyEndpoint||req.method==="GET","NOT_FOUND",404);
   else requireThat(!policyEndpoint,"POLICY_ADMIN_UNAVAILABLE",503);
+  if(env.AUTH_MODE==='supabase')req.owner=await supabaseOwner(req.headers.authorization,env);
+  else {
   requireThat(Object.keys(tokens).length>0,"AUTH_NOT_CONFIGURED",503);
   const token=req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43,128})$/)?.[1];
   requireThat(token,"UNAUTHORIZED",401);
   const hash=createHash("sha256").update(token).digest();
   const match=Object.entries(tokens).find(([owner,h])=>/^[\w-]+$/.test(owner)&&/^[a-f0-9]{64}$/.test(h)&&timingSafeEqual(hash,Buffer.from(h,"hex")));
   requireThat(match,"UNAUTHORIZED",401);req.owner=match[0];
+  }
+  if(env.AUTH_MODE==='supabase')await consumeLimit(flow.db,'api:'+req.owner,120);
   const now=Date.now(),w=windows.get(req.owner);
   if(!w||now-w.at>60000)windows.set(req.owner,{at:now,count:1});
   else requireThat(++w.count<=120,"RATE_LIMITED",429);
@@ -49,10 +54,11 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
   reply.code(500).send({error:"INTERNAL_ERROR"});
  });
  app.get("/api/health",async()=>({orderMode:"SIMULATION",chainMode:"SEPOLIA_REAL",configured:{
-  kiln:!!env.KILN_API_KEY,search:!!env.SEARCH_API_URL,auth:Object.keys(tokens).length>0,
+  kiln:!!env.KILN_API_KEY,search:!!env.SEARCH_API_URL,auth:env.AUTH_MODE==='supabase'||Object.keys(tokens).length>0,
   audit:await flow.auditReady()},capabilities:{audit:await flow.auditReady()?"VERIFIED":"UNAVAILABLE",
-  policyAdmin:!!(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='policy-admin' AND state='CONFIGURED' AND checked_at>now()-interval '60 seconds'")).rowCount},notice:"Configuration is not live verification"}));
+  policyAdmin:env.POLICY_SERVERLESS==='1'||!!(await flow.db.pool.query("SELECT 1 FROM service_health WHERE name='policy-admin' AND state='CONFIGURED' AND checked_at>now()-interval '60 seconds'")).rowCount},notice:"Configuration is not live verification"}));
  app.get("/api/scopes",async(req)=>(await flow.db.pool.query("SELECT id,mode,active_version FROM policy_scopes WHERE owner_id=$1",[req.owner])).rows);
+ app.post('/api/setup',async req=>flow.setup(req.owner,req.body));
  app.get<{Params:{id:string}}>("/api/policies/:id",async req=>{
   const r=(await flow.db.pool.query("SELECT v.policy,v.digest,v.version,s.mode,s.edit_id,s.edit_base,EXISTS(SELECT 1 FROM agent_runs a WHERE a.scope_id=s.id AND a.active) OR EXISTS(SELECT 1 FROM audit_jobs j WHERE j.scope_id=s.id AND j.state<>'FINALIZED') AS busy FROM policy_scopes s JOIN policy_versions v ON v.scope_id=s.id AND v.version=s.active_version WHERE s.id=$1 AND s.owner_id=$2",[req.params.id,req.owner])).rows[0];requireThat(r,"NOT_FOUND",404);
   r.balance=(await flow.db.pool.query("SELECT currency,balance,spent,reserved FROM balances WHERE owner_id=$1 AND scope_id=$2 AND currency=$3",[req.owner,req.params.id,r.policy.currency])).rows[0]??null;return r;});
@@ -75,7 +81,7 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
   const a=z.object({scopeId:id,baseVersion:z.number().int().positive(),draft:z.unknown(),approvedDigest:z.string().length(64)}).strict().parse(req.body);
   return flow.publish(req.owner,a.scopeId,{...a,editId:req.params.id});});
  app.delete<{Params:{id:string}}>("/api/policy-edit-sessions/:id",async req=>flow.cancelEdit(req.owner,z.object({scopeId:id}).strict().parse(req.body).scopeId,req.params.id));
- const web=path.resolve(ROOT,"frontend/dist");if(existsSync(web))app.register(staticFiles,{root:web});
+ const web=path.resolve(ROOT,"frontend/dist");if(existsSync(web))app.register(import('@fastify/static'),{root:web});
  return app;
 }
 export async function runtime(env=process.env){

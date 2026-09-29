@@ -4,8 +4,8 @@
   "installCommand": "npm ci --workspace @team11/frontend --include-workspace-root=false",
   "buildCommand": "npm run build -w @team11/frontend",
   "outputDirectory": "frontend/dist",
-  "functions": { "api/gateway.mjs": { "maxDuration": 60 } },
-  "rewrites": [{ "source": "/api/:path*", "destination": "/api/gateway?path=:path*" }],
+  "functions": { "api/gateway.mjs": { "maxDuration": 300, "includeFiles":"{backend/dist/**,deploy/certs/**,blockchain/scripts/audit-safety.mjs}" },"api/policy.mjs":{"maxDuration":60,"includeFiles":"{backend/dist/**,deploy/certs/**}"},"api/compute.py":{"maxDuration":60,"excludeFiles":"{node_modules/**,src/**,dist/**,backend/**,blockchain/**,deploy/**}"} },
+  "rewrites": [{"source":"/api/compute","destination":"/api/compute"},{"source":"/api/setup","destination":"/api/policy?path=setup"},{"source":"/api/policy-edit-sessions/:path*","destination":"/api/policy?path=policy-edit-sessions/:path*"},{ "source": "/api/:path*", "destination": "/api/gateway?path=:path*" }],
   "headers": [{ "source": "/(.*)", "headers": [
     { "key": "X-Content-Type-Options", "value": "nosniff" },
     { "key": "Referrer-Policy", "value": "no-referrer" },

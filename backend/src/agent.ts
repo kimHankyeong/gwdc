@@ -30,8 +30,15 @@ export class Agent {
  async resume(owner:string,runId:string) {
   const lock=await this.flow.db.pool.connect();
   try {
-   const acquired=(await lock.query("SELECT pg_try_advisory_lock(hashtext($1)) AS locked",["agent:"+runId])).rows[0].locked;
+   await lock.query('BEGIN');
+   await lock.query("SET LOCAL idle_in_transaction_session_timeout='300s'");
+   const acquired=(await lock.query("SELECT pg_try_advisory_xact_lock(hashtext($1)) AS locked",["agent:"+runId])).rows[0].locked;
    if(!acquired)throw new AppError("RUN_BUSY",429);
+   if(process.env.VERCEL){
+    let slot=false;
+    for(let i=0;i<4;i++)if((await lock.query('SELECT pg_try_advisory_xact_lock(110011,$1) AS locked',[i])).rows[0].locked){slot=true;break;}
+    requireThat(slot,'LLM_BUSY',429);
+   }
    const initial=await this.flow.run(owner,runId);requireThat(initial.active,"RUN_CLOSED");
    requireThat(['READY','CONSTRAINTS_DRAFT','ACTION_REQUIRED'].includes(initial.state),'INVALID_STAGE');
    await this.flow.db.pool.query("UPDATE agent_runs SET error_code=NULL WHERE id=$1",[runId]);
@@ -52,6 +59,7 @@ export class Agent {
     requireThat(Array.isArray(calls)&&calls.length<=9,"INVALID_LLM_RESPONSE");
     let pause=false;
     for(const call of calls){
+     if(Date.now()>=deadline)pause=true;
      let result:any;
      try {
       requireThat(typeof call.id==="string"&&call.type==="function","INVALID_TOOL_CALL");
@@ -60,7 +68,7 @@ export class Agent {
       result=pause?{status:"BLOCKED",reasonCodes:["DEFERRED_WITHOUT_EXECUTION"]}:await this.execute(owner,runId,call.function.name,JSON.parse(call.function.arguments));
      }catch(e){
       const code=e instanceof AppError?e.code:"INVALID_TOOL_ARGUMENTS";
-      result={status:"BLOCKED",reasonCodes:[code],retryable:false,...(code==="SEARCH_SCOPE_MISMATCH"?{correction:"Copy input.query exactly, or propose constraints first and copy constraints.query exactly."}:{})};
+      result={status:"BLOCKED",reasonCodes:[code],retryable:false,...(code==="SEARCH_SCOPE_MISMATCH"?{correction:"Copy input.query exactly, or propose constraints first and copy constraints.query exactly."}:code==="SIMULATION_INPUT_COMPLETE"?{correction:"No missing user input. Propose exact HardInput constraints if missing, then evaluate_policy with input.simulation.candidateId. SOURCE_NOT_ALLOWED is not a policy denial."}:{})};
       if(code!=="SEARCH_SCOPE_MISMATCH"&&/^(SEARCH_|SOURCE_|KILN_|AUDIT_NOT_READY|AUDIT_UNSUPPORTED|COMPUTE_BUSY)/.test(code)){
        await this.flow.db.pool.query("UPDATE agent_runs SET state='ACTION_REQUIRED',error_code=$2,version=version+1 WHERE id=$1 AND active",[runId,code]);pause=true;
       }
@@ -77,7 +85,7 @@ export class Agent {
    if(!(e instanceof AppError&&["RUN_BUSY","INVALID_STAGE"].includes(e.code)))await this.flow.db.pool.query("UPDATE agent_runs SET state='ACTION_REQUIRED',error_code=$3,version=version+1 WHERE id=$1 AND owner_id=$2 AND active AND state NOT IN ('AUDIT_PENDING','PROCESSING')",[runId,owner,e instanceof AppError?e.code:"AGENT_FAILED"]);
    throw e;
   }finally{
-   await lock.query("SELECT pg_advisory_unlock(hashtext($1))",["agent:"+runId]).catch(()=>{});lock.release();
+   await lock.query('ROLLBACK').catch(()=>{});lock.release();
   }
  }
  async execute(owner:string,runId:string,name:string,args:any):Promise<any> {
@@ -110,6 +118,7 @@ export class Agent {
    requireThat(!stages[name]||stages[name].includes(r.state),"INVALID_STAGE");
    const p=this.flow.cache.require(r.scope_id,r.policy_version,r.policy_digest).policy;
    if(name==="ask_clarification"){
+    requireThat(!(r.track==='HardInput'&&r.input.maxTotal&&r.input.quantity&&r.input.simulation),'SIMULATION_INPUT_COMPLETE');
     // Do not show a different-language fallback as if it answered a Korean request.
     if(/[가-힣]/.test(r.input.query)&&args.questions.some((q:string)=>!/[가-힣]/.test(q)))
      args={questionKey:"purchase_details",questions:["구매할 내용과 예산·수량을 아래 입력란에서 확인해 주세요."]};

@@ -115,6 +115,8 @@ PostgreSQL 통합 검사는 npm 패키지의 별도 테스트 클러스터를 lo
 
 ## 오픈소스 검색 API
 
+온라인 실행은 Supabase PostgreSQL/Auth와 Vercel Node.js/Python Functions로 연결했습니다. 개발용 접근 토큰 입력은 온라인에서 이메일 로그인으로 교체했습니다. 현재 상태·보안·남은 범위·재배포 방법은 [Supabase QA](docs/QA-SUPABASE-2026-09-29.md)를 참조하세요. SMTP/공개 회원가입 및 Sepolia 감사 Worker는 아직 별도 설정이 필요합니다.
+
 - [deedy5/ddgs](https://github.com/deedy5/ddgs), MIT, 버전 9.16.0. Qwen 모델 전용 API가 아니라 서버가 실행하는 `search_products` 도구의 검색 제공자입니다.
 - 현재 Kiln 모델은 qwen3-32b. Brave API와 Brave 엔진은 사용하지 않습니다. DuckDuckGo 엔진을 명시적으로 고정합니다.
 - SearXNG도 검토했으나 현재 Docker 엔진이 동작하지 않아 Python에서 실행 가능한 DDGS를 선택했습니다.

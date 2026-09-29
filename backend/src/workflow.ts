@@ -4,14 +4,32 @@ import path from "node:path";
 import type { PoolClient } from "pg";
 import { Database } from "./db.js";
 import { PolicyCache,digest,canonical } from "./policy.js";
-import { policySchema,constraintsSchema,startSchema } from "./schema.js";
+import { policySchema,constraintsSchema,startSchema,money } from "./schema.js";
+import {z} from 'zod';
 import { AppError,requireThat } from "./errors.js";
 import { PythonEvaluator } from "./python.js";
 import { SearchService } from "./search.js";
 
 export class Workflow {
  constructor(readonly db:Database,readonly cache:PolicyCache,readonly python:PythonEvaluator,
-  readonly search:SearchService,readonly policyRoot:string,readonly publisher:Database|null) {}
+  readonly search:SearchService,readonly policyRoot:string,readonly publisher:Database|null,
+  readonly policyStorage:'file'|'database'='file') {}
+ async setup(owner:string,raw:unknown){
+  requireThat(this.publisher&&this.policyStorage==='database','POLICY_ADMIN_UNAVAILABLE',503);
+  const a=z.object({policy:policySchema,balance:money,approvedDigest:z.string().length(64)}).strict().parse(raw);
+  requireThat(digest(a.policy)===a.approvedDigest,'POLICY_DIGEST_MISMATCH');
+  requireThat(new Date(a.policy.validUntil).getTime()>Date.now(),'POLICY_EXPIRED');
+  return this.publisher.tx(async c=>{
+   await c.query('SELECT pg_advisory_xact_lock(hashtext($1))',['setup:'+owner]);
+   const existing=(await c.query('SELECT id FROM policy_scopes WHERE owner_id=$1',[owner])).rows[0];
+   requireThat(!existing,'POLICY_ALREADY_EXISTS',409);
+   const scopeId=randomUUID();
+   await c.query('INSERT INTO policy_scopes(id,owner_id,active_version) VALUES($1,$2,1)',[scopeId,owner]);
+   await c.query('INSERT INTO policy_versions(scope_id,version,digest,policy) VALUES($1,1,$2,$3)',[scopeId,digest(a.policy),a.policy]);
+   await c.query('INSERT INTO balances(owner_id,scope_id,currency,balance) VALUES($1,$2,$3,$4)',[owner,scopeId,a.policy.currency,a.balance]);
+   return {scopeId};
+  });
+ }
  async auditReady(client:any=this.db.pool) {
   return !!(await client.query("SELECT 1 FROM service_health WHERE name='audit' AND state='VERIFIED' AND checked_at>now()-interval '60 seconds'")).rowCount;
  }
@@ -90,7 +108,7 @@ export class Workflow {
  async quote(c:PoolClient,r:any,candidateId:string,quantity:number):Promise<any> {
   const candidate=(await c.query("SELECT data FROM candidates WHERE id=$1 AND run_id=$2",[candidateId,r.id])).rows[0]?.data;
   requireThat(candidate,"NOT_FOUND",404);
-  const p=this.cache.require(r.scope_id,r.policy_version,r.policy_digest).policy;
+  const p=(await this.cache.load(r.scope_id,r.policy_version,r.policy_digest)).policy;
   const sim=r.input.simulation;
   const f=candidate.fields??{};
   // All amounts used for simulation need explicit user-entered minor units.
@@ -102,7 +120,7 @@ export class Workflow {
    amountEvidence:"SIMULATION_INPUT",observedPrice:f.observedPrice??null,mode:"SIMULATION"};
  }
  async evaluate(c:PoolClient,r:any,quote:any,ownReservation="0") {
-  const p=this.cache.require(r.scope_id,r.policy_version,r.policy_digest).policy;
+  const p=(await this.cache.load(r.scope_id,r.policy_version,r.policy_digest)).policy;
   const b=(await c.query("SELECT * FROM balances WHERE owner_id=$1 AND scope_id=$2 AND currency=$3 FOR UPDATE",[r.owner_id,r.scope_id,p.currency])).rows[0];
   requireThat(b,"SIMULATION_BALANCE_NOT_CONFIGURED");
   const facts={quote,balance:b.balance,spent:b.spent,reserved:(BigInt(b.reserved)-BigInt(ownReservation)).toString(),now:new Date().toISOString()};
@@ -162,12 +180,14 @@ export class Workflow {
    const p=(await c.query("SELECT * FROM policy_scopes WHERE id=$1 FOR UPDATE",[scope])).rows[0];
    requireThat(p&&p.owner_id===owner&&p.mode==="POLICY_EDIT"&&p.edit_id===a.editId&&p.active_version===a.baseVersion,"INVALID_EDIT_SESSION");
    const version=p.active_version+1,hash=digest(policy);
+   if(this.policyStorage==='file'){
    const dir=path.resolve(this.policyRoot,scope,String(version));await mkdir(dir,{recursive:true});
    // Exclusive create: old published bytes are never overwritten.
    const file=path.join(dir,"policy.json"),bytes=canonical(policy);
    try {await writeFile(file,bytes,{flag:"wx",mode:0o444});}
    catch(e:any){requireThat(e.code==="EEXIST"&&(await readFile(file,"utf8"))===bytes,"POLICY_ARTIFACT_CONFLICT");}
    await this.cache.load(scope,version,hash);
+   }
    await c.query("INSERT INTO policy_versions(scope_id,version,digest,policy) VALUES($1,$2,$3,$4)",[scope,version,hash,policy]);
    await c.query("UPDATE policy_scopes SET mode='NORMAL',active_version=$2,edit_id=NULL,edit_base=NULL,edit_owner=NULL WHERE id=$1",[scope,version]);
    return {version,digest:hash};

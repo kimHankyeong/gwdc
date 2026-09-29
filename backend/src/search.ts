@@ -62,7 +62,7 @@ export function parseProduct(html:string) {
 export class SearchService {
  private active=0;
  private cursors=new Map<string,{query:string;context:string;offset:number;expires:number}>();
- constructor(private endpoint:string|undefined,private allowed:Set<string>) {}
+ constructor(private endpoint:string|undefined,private allowed:Set<string>,private internalSecret?:string) {}
  configured(){return !!this.endpoint;}
  async search(query:string){return (await this.searchPage(query,'direct')).candidates;}
  async searchPage(query:string,context:string,cursor?:string) {
@@ -74,10 +74,10 @@ export class SearchService {
    requireThat(!cursor||(page&&page.query===query&&page.context===context&&page.expires>Date.now()),'SEARCH_CURSOR_INVALID');
    const offset=page?.offset??0;
    const url=new URL(this.endpoint!);
-   requireThat(url.protocol==='http:'&&url.hostname==='127.0.0.1'&&!url.username&&!url.password&&!url.search&&!url.hash&&url.pathname==='/',"SEARCH_ENDPOINT_INVALID");
-   url.pathname='/search/text';
+   requireThat(!url.username&&!url.password&&!url.search&&!url.hash&&(this.internalSecret?url.protocol==='https:'&&url.pathname==='/api/compute':url.protocol==='http:'&&url.hostname==='127.0.0.1'&&url.pathname==='/'),"SEARCH_ENDPOINT_INVALID");
+   if(!this.internalSecret)url.pathname='/search/text';
    let response:Response;
-   try{response=await fetch(url,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json'},body:JSON.stringify({query,page:offset+1}),signal:AbortSignal.timeout(20000)});}
+   try{response=await fetch(url,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',...(this.internalSecret?{Authorization:'Bearer '+this.internalSecret}:{})},body:JSON.stringify({...(this.internalSecret?{operation:'search'}:{}),query,page:offset+1}),signal:AbortSignal.timeout(20000)});}
    catch{throw new AppError('SEARCH_UNAVAILABLE',503);}
    requireThat(response.ok,response.status===429?'SEARCH_BUSY':'SEARCH_UNAVAILABLE',503);
    let result:any;try{result=JSON.parse(await boundedText(response,2*1024*1024,'SEARCH_RESPONSE_TOO_LARGE'));}catch(e){if(e instanceof AppError)throw e;throw new AppError('SEARCH_INVALID_RESPONSE');}

@@ -1,8 +1,9 @@
 import { Pool, type PoolClient } from "pg";
 export class Database {
   readonly pool: Pool;
-  constructor(url: string) {
-    this.pool = new Pool({ connectionString: url, max: 12, connectionTimeoutMillis: 5000,
+  constructor(url: string, ca?: string) {
+    const connection=new URL(url);if(ca)connection.searchParams.delete('sslmode');
+    this.pool = new Pool({ connectionString: connection.href, max: ca?5:12, ...(ca?{ssl:{ca,rejectUnauthorized:true}}:{}), connectionTimeoutMillis: 5000,
       statement_timeout: 15000, idle_in_transaction_session_timeout: 20000 });
   }
   async tx<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
