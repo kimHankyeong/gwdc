@@ -29,7 +29,7 @@ export class KilnClient {
   await this.acquireRequest();
   try{
    let response:Response;
-   try{response=await fetch(input,{...init,signal:init?.signal??AbortSignal.timeout(30000)});}
+   try{response=await fetch(input,{...init,signal:init?.signal??AbortSignal.timeout(60000)});}
    catch(error){console.warn("kiln_fetch_failed",{name:error instanceof Error?error.name:"unknown"});throw new AppError("KILN_UNAVAILABLE",503);}
    if(!response.ok){console.warn("kiln_http_failed",{status:response.status});await response.body?.cancel();throw new AppError(response.status===429?"LLM_BUSY":"KILN_UNAVAILABLE",503);}
    const text=await boundedText(response,262144,"INVALID_LLM_RESPONSE");
@@ -54,7 +54,7 @@ export class KilnClient {
   await this.acquireRequest();
   try{
    const res=await fetch("https://api.bricksum.com/v1/chat/completions",{
-    method:"POST",headers:{Authorization:"Bearer "+this.env.KILN_API_KEY,"Content-Type":"application/json"},body,signal:AbortSignal.timeout(30000)});
+    method:"POST",headers:{Authorization:"Bearer "+this.env.KILN_API_KEY,"Content-Type":"application/json"},body,signal:AbortSignal.timeout(60000)});
    if(!res.ok)console.warn("kiln_http_failed",{status:res.status});
    requireThat(res.ok,res.status===429?"LLM_BUSY":"KILN_UNAVAILABLE",503);
    const text=await boundedText(res,262144,"INVALID_LLM_RESPONSE");
