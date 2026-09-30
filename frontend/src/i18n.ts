@@ -53,6 +53,9 @@ const en:Record<string,string>={
  '검색과 구매 진행을 중단합니다. 아직 확정되지 않은 예약은 해제됩니다.':'Search and purchase processing will stop. Pending reservations will be released.',
  '계속 진행':'Keep going','요청 ID':'Request ID','정책 · 읽기 전용':'Policy · read only',
  'AI 작업 요약':'AI activity','추가 확인이 필요합니다':'More information needed','확인이 필요합니다':'Action needed',
+ '요청을 처리하지 못했습니다. 현재 상태를 확인하고 다시 시도해 주세요.':'The request could not be completed. Check the current status and try again.',
+ '판매 페이지에서 가격과 배송비를 확인하지 못했습니다. 상품명을 바꿔 다시 검색해 주세요.':'Price or shipping could not be verified on the merchant page. Try another product name.',
+ '상품은 찾았지만 판매 페이지에서 배송비를 확인하지 못했습니다. 같은 상품으로 다른 판매처를 다시 검색하거나, 모델명을 더 정확히 입력해 주세요.':'The product was found, but shipping could not be verified. Try another merchant or a more exact model name.',
  '블록체인 트랜잭션':'Blockchain transactions','새로고침':'Refresh','네트워크':'Network','감사 연결':'Audit connection',
  '연결 준비됨':'Ready','연결 미준비':'Not ready','주문 방식':'Order mode','가스 지불':'Gas paid by',
  '서비스 대납':'Service relayer','개인 지갑':'Personal wallet','미연결':'Not connected',
@@ -115,6 +118,9 @@ function translated(value:string){
   .replace(/정책·금액 검사 (\d+)건 · 허용 (\d+)건/g,'Policy and price checks: $1 · allowed: $2')
   .replace(/요청 접수 · 정책 v(\d+) 적용/g,'Request received · policy v$1 applied')
   .replace(/정책 v(\d+)/g,'Policy v$1')
+  .replace(/^조건 고정 · Policy v(\d+)$/,'Fixed conditions · Policy v$1')
+  .replace(/^함께 계획 · Policy v(\d+)$/,'Plan together · Policy v$1')
+  .replace(/^진행 중단 · /,'Stopped · ')
   .replace(/^(\d+)개$/,'$1 items')
   .replace(/^(\d+)건$/,'$1 checks')
   .replace(/판매 페이지 가격 ([\d,]+|확인 불가) ([A-Z]*) · 배송비 ([\d,]+|확인 불가) ([A-Z]*)/g,'Observed price $1 $2 · shipping $3 $4');
