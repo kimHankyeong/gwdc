@@ -94,6 +94,20 @@ export class Agent {
     };
     const initialSearch=await searchForCurrentRun(initial);initial=initialSearch.run;
     if(initialSearch.stop)return initial;
+   if(!initial.auto_purchase&&initial.state==='READY'&&initial.constraint_approval?.version===initial.constraint_version&&!initial.intents.length){
+    const approvedIds=new Set<string>(initial.constraint_approval.evidenceIds??[]);
+    const candidates=new Map<string,any>(initial.candidates.map((row:any)=>[row.id,row.data]));
+    const results=initial.evaluations.filter((row:any)=>row.kind==='EVALUATION'&&approvedIds.has(row.id)&&row.result?.allowed&&candidates.has(row.result.candidateId))
+     .map((row:any)=>({candidateId:row.result.candidateId,allowed:true,total:row.result.total,rating:candidates.get(row.result.candidateId)?.fields?.rating??null}));
+    if(results.length){
+     const entry=await this.flow.cache.load(initial.scope_id,initial.policy_version,initial.policy_digest);
+     const ranked=await this.flow.python.evaluate({operation:'rank',policy:entry.policy,results,policyDigest:initial.policy_digest,inputDigest:digest(results)});
+     if(ranked.candidateIds?.length){
+      await this.dispatch(owner,runId,'prepare_purchase',{constraintVersion:initial.constraint_version,candidateId:ranked.candidateIds[0],quantity:initial.constraints.quantity});
+      return this.flow.run(owner,runId);
+     }
+    }
+   }
    await this.flow.db.pool.query("UPDATE agent_runs SET error_code=NULL WHERE id=$1",[runId]);
    const messages:any[]=[{role:"user",content:JSON.stringify({track:initial.track,input:initial.input,autoPurchase:initial.auto_purchase,state:initial.state,
     constraints:initial.constraints,constraintVersion:initial.constraint_version,inputVersion:initial.input_version,
