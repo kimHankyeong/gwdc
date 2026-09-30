@@ -30,8 +30,8 @@ export class KilnClient {
   try{
    let response:Response;
    try{response=await fetch(input,{...init,signal:init?.signal??AbortSignal.timeout(30000)});}
-   catch{throw new AppError("KILN_UNAVAILABLE",503);}
-   if(!response.ok){await response.body?.cancel();throw new AppError(response.status===429?"LLM_BUSY":"KILN_UNAVAILABLE",503);}
+   catch(error){console.warn("kiln_fetch_failed",{name:error instanceof Error?error.name:"unknown"});throw new AppError("KILN_UNAVAILABLE",503);}
+   if(!response.ok){console.warn("kiln_http_failed",{status:response.status});await response.body?.cancel();throw new AppError(response.status===429?"LLM_BUSY":"KILN_UNAVAILABLE",503);}
    const text=await boundedText(response,262144,"INVALID_LLM_RESPONSE");
    let data:any;try{data=JSON.parse(text);}catch{throw new AppError("INVALID_LLM_RESPONSE");}
    const choice=data.choices?.[0];requireThat(choice?.message?.role==="assistant"&&choice.finish_reason!=="length","INVALID_LLM_RESPONSE");
@@ -55,6 +55,7 @@ export class KilnClient {
   try{
    const res=await fetch("https://api.bricksum.com/v1/chat/completions",{
     method:"POST",headers:{Authorization:"Bearer "+this.env.KILN_API_KEY,"Content-Type":"application/json"},body,signal:AbortSignal.timeout(30000)});
+   if(!res.ok)console.warn("kiln_http_failed",{status:res.status});
    requireThat(res.ok,res.status===429?"LLM_BUSY":"KILN_UNAVAILABLE",503);
    const text=await boundedText(res,262144,"INVALID_LLM_RESPONSE");
    const data=JSON.parse(text);const choice=data.choices?.[0];
@@ -62,7 +63,7 @@ export class KilnClient {
    const u=data.usage??{};this.usage.input+=u.prompt_tokens??0;this.usage.output+=u.completion_tokens??0;
    if(typeof u.prompt_tokens_details?.cached_tokens==="number")this.usage.cached+=u.prompt_tokens_details.cached_tokens;else this.usage.unknownCache++;
    return choice.message;
-  }catch(e){if(e instanceof AppError)throw e;throw new AppError("KILN_UNAVAILABLE",503);}
+  }catch(e){if(e instanceof AppError)throw e;console.warn("kiln_request_failed",{name:e instanceof Error?e.name:"unknown"});throw new AppError("KILN_UNAVAILABLE",503);}
   finally{this.active--;}
  }
 }
