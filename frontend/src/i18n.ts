@@ -51,7 +51,7 @@ const en:Record<string,string>={
  '모의 영수증이 생성되었습니다.':'Simulated receipt created.','정책 식별값':'Policy digest',
  '검색 재시도':'Retry search','요청 취소':'Cancel request','요청을 취소할까요?':'Cancel this request?',
  '검색과 구매 진행을 중단합니다. 아직 확정되지 않은 예약은 해제됩니다.':'Search and purchase processing will stop. Pending reservations will be released.',
- '계속 진행':'Keep going','닫기':'Close','요청 ID':'Request ID','정책 · 읽기 전용':'Policy · read only',
+ '계속 진행':'Keep going','요청 ID':'Request ID','정책 · 읽기 전용':'Policy · read only',
  'AI 작업 요약':'AI activity','추가 확인이 필요합니다':'More information needed','확인이 필요합니다':'Action needed',
  '블록체인 트랜잭션':'Blockchain transactions','새로고침':'Refresh','네트워크':'Network','감사 연결':'Audit connection',
  '연결 준비됨':'Ready','연결 미준비':'Not ready','주문 방식':'Order mode','가스 지불':'Gas paid by',
