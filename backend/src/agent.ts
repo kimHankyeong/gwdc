@@ -94,6 +94,18 @@ export class Agent {
     };
     const initialSearch=await searchForCurrentRun(initial);initial=initialSearch.run;
     if(initialSearch.stop)return initial;
+   if(initial.track==='HardInput'&&initial.candidates.length&&!initial.evaluations.some((row:any)=>row.kind==='EVALUATION')){
+    const evaluated=await this.dispatch(owner,runId,'evaluate_policy',{
+     constraintVersion:initial.constraint_version,candidateIds:initial.candidates.map((row:any)=>row.id)
+    });
+    initial=await this.flow.run(owner,runId);
+    if(initial.auto_purchase&&initial.intents.length)return initial;
+    if(!evaluated.data.evaluations.length){
+     await this.flow.db.pool.query("UPDATE agent_runs SET state='NEEDS_INPUT',question=$2,error_code=NULL,version=version+1 WHERE id=$1 AND active",[runId,{questionKey:'source_price',questions:['판매 페이지에서 가격과 배송비를 확인하지 못했습니다. 상품명을 바꿔 다시 검색해 주세요.']}]);
+     return this.flow.run(owner,runId);
+    }
+    return initial;
+   }
    if(!initial.auto_purchase&&initial.state==='READY'&&initial.constraint_approval?.version===initial.constraint_version&&!initial.intents.length){
     const approvedIds=new Set<string>(initial.constraint_approval.evidenceIds??[]);
     const candidates=new Map<string,any>(initial.candidates.map((row:any)=>[row.id,row.data]));
