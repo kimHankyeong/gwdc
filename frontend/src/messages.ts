@@ -23,7 +23,8 @@ export const messages:Record<string,string>={INVALID_ACCOUNT_ID:'아이디를 �
  EXACT_INPUT_MISMATCH:'명시한 상품명 또는 조건과 일치하지 않습니다.',TRANSACTION_LIMIT:'단일 거래 한도를 초과합니다.',BUDGET_LIMIT:'누적 예산을 초과합니다.',INSUFFICIENT_BALANCE:'모의 잔고 또는 잔여 예산이 부족합니다.',
  MERCHANT_EVIDENCE_MISSING:'판매처 식별 근거가 확인되지 않았습니다.',MERCHANT_NOT_ALLOWED:'허용된 판매처가 아닙니다.',MERCHANT_BLOCKED:'차단한 판매처입니다.',
  BRAND_EVIDENCE_MISSING:'브랜드 근거가 없습니다.',BRAND_BLOCKED:'제외된 브랜드입니다.',REVIEW_EVIDENCE_MISSING:'필수 리뷰 근거가 없습니다.',REVIEW_TOO_LOW:'평점이 기준보다 낮습니다.',POLICY_EXPIRED:'정책 유효기간이 지났습니다.',
- SOURCE_NOT_ALLOWED:'수집 허용 출처가 아닙니다.',UNSUPPORTED_SOURCE:'현재 수집 방식으로 확인할 수 없는 자료입니다.',RATE_LIMITED:'요청이 많습니다. 잠시 후 재시도해 주세요.',NOT_FOUND:'항목을 찾을 수 없습니다.',EVALUATION_FAILED:'계산 결과를 검증하지 못했습니다.'
+ SOURCE_NOT_ALLOWED:'수집 허용 출처가 아닙니다.',UNSUPPORTED_SOURCE:'현재 수집 방식으로 확인할 수 없는 자료입니다.',RATE_LIMITED:'요청이 많습니다. 잠시 후 재시도해 주세요.',NOT_FOUND:'항목을 찾을 수 없습니다.',EVALUATION_FAILED:'계산 결과를 검증하지 못했습니다.',
+ INVALID_PROJECT_PLAN:'재료 계획을 검증하지 못했습니다. 다시 시도해 주세요.',DUPLICATE_MATERIAL:'재료 계획에 중복 검색 항목이 있습니다.',PROJECT_BUDGET_EXCEEDED:'주제 예산 또는 재료별 거래 한도를 확인해 주세요.',INVALID_PROJECT_ITEMS:'재료별 한도를 다시 확인해 주세요.',PROJECT_ITEM_BUSY:'진행 중인 재료를 먼저 마쳐 주세요.',ITEM_ALREADY_PURCHASED:'이미 모의 주문한 재료입니다.',PROJECT_INCOMPLETE:'모든 재료의 모의 영수증이 필요합니다.'
 };
 export const explain=(code:string)=>messages[code]??'요청을 처리하지 못했습니다. 현재 상태를 확인하고 다시 시도해 주세요.';
 export const stateNames:Record<string,string>={READY:'진행 준비',NEEDS_INPUT:'추가 확인',CONSTRAINTS_DRAFT:'조건 검토',NEEDS_APPROVAL:'최종 승인 대기',READY_FOR_TOOL:'승인 완료',PROCESSING:'모의 주문 처리 중',AUDIT_PENDING:'감사 대기',ACTION_REQUIRED:'확인 필요',REJECTED:'반려',COMPLETED:'완료',COMMITTED:'모의 주문 확정',CANCELED:'취소됨',NEEDS_RECONFIRMATION:'견적 재확인',PENDING:'대기',INCLUDED:'블록 포함',FINALIZED:'최종 확정',RECONCILIATION_REQUIRED:'감사 복구 필요',RUNNING:'처리 중'};

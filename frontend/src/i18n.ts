@@ -4,7 +4,7 @@ export function setLanguage(next:Language){language=next;localStorage.setItem('g
 document.documentElement.lang=language;
 
 const en:Record<string,string>={
- '구매':'Purchase','정책':'Policy','기록':'History','설정':'Settings','주문 기록':'Order history','주 메뉴':'Main menu',
+ '구매':'Purchase','주제 프로젝트':'Projects','주제를 재료로 나누고 하나씩 모의 구매합니다.':'Break a topic into materials and purchase them in simulation.','정책':'Policy','기록':'History','설정':'Settings','주문 기록':'Order history','주 메뉴':'Main menu',
  '로그인':'Sign in','로그아웃':'Sign out','회원가입':'Sign up','처음이신가요?':'New here?',
  '앱 설치':'Install app','앱으로 사용하기':'Use as an app','닫기':'Close',
  '오프라인입니다. 연결 후 다시 시도하세요.':'You are offline. Reconnect and try again.',
@@ -54,6 +54,13 @@ const en:Record<string,string>={
  '계속 진행':'Keep going','요청 ID':'Request ID','정책 · 읽기 전용':'Policy · read only',
  'AI 작업 요약':'AI activity','추가 확인이 필요합니다':'More information needed','확인이 필요합니다':'Action needed',
  'AI 작업 요약 · 진행 중':'AI activity · In progress','확인한 배송비':'Observed shipping',
+ '재료 계획을 검증하지 못했습니다. 다시 시도해 주세요.':'The material plan could not be validated. Try again.',
+ '재료 계획에 중복 검색 항목이 있습니다.':'The material plan contains duplicate search items.',
+ '주제 예산 또는 재료별 거래 한도를 확인해 주세요.':'Check the topic budget and each material limit.',
+ '재료별 한도를 다시 확인해 주세요.':'Check the material allocations.',
+ '진행 중인 재료를 먼저 마쳐 주세요.':'Finish the material already in progress.',
+ '이미 모의 주문한 재료입니다.':'This material already has a simulated order.',
+ '모든 재료의 모의 영수증이 필요합니다.':'Every material needs a simulated receipt.',
  '판매 페이지 관측 가격':'Merchant page price','주문만 시뮬레이션':'Order is simulated','출처':'Source',
  '감사 기록 처리 중입니다. 결과 확정 뒤 요청을 종료할 수 있습니다.':'The audit record is processing. You can close the request after it is finalized.',
  '실제 주문·청구·배송은 없습니다. 감사 확정 여부를 별도로 확인하세요.':'No real order, charge, or delivery occurs. Check audit finality separately.',

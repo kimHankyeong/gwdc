@@ -13,6 +13,7 @@ import { SearchService,defaultProductHosts } from "./search.js";
 import { Workflow } from "./workflow.js";
 import { KilnClient } from "./kiln.js";
 import { Agent } from "./agent.js";
+import { Projects } from "./projects.js";
 import { PurchaseWorker } from "./purchaseWorker.js";
 import { AuditWorker } from "./auditWorker.js";
 import { AppError,requireThat } from "./errors.js";
@@ -24,6 +25,7 @@ loadEnv({path:path.join(ROOT,".env"),quiet:true});
 declare module "fastify" {interface FastifyRequest {owner:string}}
 export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
  const app=Fastify({logger:false,bodyLimit:32768,trustProxy:false});
+ const projects=new Projects(flow,agent.kiln);
  const cloudPurchase=env.POLICY_SERVERLESS==='1'&&env.SERVICE_ROLE!=='policy-admin'?new PurchaseWorker(flow):null;
  const callCloudAudit=async(action:'ready'|'tick',requestId?:string)=>{
   if(!cloudPurchase||!env.PUBLIC_APP_ORIGIN||!env.AUDIT_TRIGGER_SECRET)return;
@@ -95,6 +97,12 @@ export function createApp(flow:Workflow,agent:Agent,env:NodeJS.ProcessEnv) {
   const r=(await flow.db.pool.query("SELECT v.policy,v.digest,v.version,s.mode,s.edit_id,s.edit_base,EXISTS(SELECT 1 FROM agent_runs a WHERE a.scope_id=s.id AND a.active) OR EXISTS(SELECT 1 FROM audit_jobs j WHERE j.scope_id=s.id AND j.state<>'FINALIZED') AS busy FROM policy_scopes s JOIN policy_versions v ON v.scope_id=s.id AND v.version=s.active_version WHERE s.id=$1 AND s.owner_id=$2",[req.params.id,req.owner])).rows[0];requireThat(r,"NOT_FOUND",404);
   r.balance=(await flow.db.pool.query("SELECT currency,balance,spent,reserved FROM balances WHERE owner_id=$1 AND scope_id=$2 AND currency=$3",[req.owner,req.params.id,r.policy.currency])).rows[0]??null;return r;});
  app.get("/api/agent/runs",async req=>(await flow.db.pool.query("SELECT id,scope_id,track,state,active,input,created_at FROM agent_runs WHERE owner_id=$1 ORDER BY created_at DESC LIMIT 50",[req.owner])).rows);
+ app.get('/api/projects',async req=>projects.list(req.owner));
+ app.post('/api/projects',async req=>projects.create(req.owner,req.body));
+ app.get<{Params:{id:string}}>('/api/projects/:id',async req=>projects.get(req.owner,id.parse(req.params.id)));
+ app.post<{Params:{id:string}}>('/api/projects/:id/approve',async req=>projects.approve(req.owner,id.parse(req.params.id),req.body));
+ app.post<{Params:{id:string,itemId:string}}>('/api/projects/:id/items/:itemId/start',async req=>projects.startItem(req.owner,id.parse(req.params.id),id.parse(req.params.itemId)));
+ app.post<{Params:{id:string}}>('/api/projects/:id/complete',async req=>projects.complete(req.owner,id.parse(req.params.id)));
  app.post("/api/agent/runs",async req=>flow.start(req.owner,req.body));
  app.get<{Params:{id:string}}>("/api/agent/runs/:id",async req=>flow.run(req.owner,req.params.id));
  app.post<{Params:{id:string}}>("/api/agent/runs/:id/resume",async req=>{
