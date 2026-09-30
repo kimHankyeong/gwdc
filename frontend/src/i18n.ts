@@ -53,6 +53,15 @@ const en:Record<string,string>={
  '검색과 구매 진행을 중단합니다. 아직 확정되지 않은 예약은 해제됩니다.':'Search and purchase processing will stop. Pending reservations will be released.',
  '계속 진행':'Keep going','요청 ID':'Request ID','정책 · 읽기 전용':'Policy · read only',
  'AI 작업 요약':'AI activity','추가 확인이 필요합니다':'More information needed','확인이 필요합니다':'Action needed',
+ 'AI 작업 요약 · 진행 중':'AI activity · In progress','확인한 배송비':'Observed shipping',
+ '판매 페이지 관측 가격':'Merchant page price','주문만 시뮬레이션':'Order is simulated','출처':'Source',
+ '감사 기록 처리 중입니다. 결과 확정 뒤 요청을 종료할 수 있습니다.':'The audit record is processing. You can close the request after it is finalized.',
+ '실제 주문·청구·배송은 없습니다. 감사 확정 여부를 별도로 확인하세요.':'No real order, charge, or delivery occurs. Check audit finality separately.',
+ '입력한 판매처의 상품만 허용합니다.':'Allow products only from the merchants you enter.',
+ '입력한 판매처의 상품을 제외합니다.':'Exclude products from the merchants you enter.',
+ '원하지 않는 브랜드를 제외합니다.':'Exclude brands you do not want.',
+ '평점 근거가 없으면 구매가 차단될 수 있습니다.':'Products without rating evidence may be blocked.',
+ '기본값: KRW · 1년 유효 · 1회 한도와 모의 잔고는 예산과 같음':'Defaults: KRW · valid for one year · per-order limit and simulated balance equal the budget.',
  '요청을 처리하지 못했습니다. 현재 상태를 확인하고 다시 시도해 주세요.':'The request could not be completed. Check the current status and try again.',
  '판매 페이지에서 가격과 배송비를 확인하지 못했습니다. 상품명을 바꿔 다시 검색해 주세요.':'Price or shipping could not be verified on the merchant page. Try another product name.',
  '상품은 찾았지만 판매 페이지에서 배송비를 확인하지 못했습니다. 같은 상품으로 다른 판매처를 다시 검색하거나, 모델명을 더 정확히 입력해 주세요.':'The product was found, but shipping could not be verified. Try another merchant or a more exact model name.',
@@ -100,7 +109,6 @@ const en:Record<string,string>={
  '01 요청':'01 Request','02 조건 검토':'02 Review conditions','03 최종 승인':'03 Final approval','04 기록':'04 Record',
  '판매 페이지 열기':'Open merchant page','확인 불가':'Unavailable','출처 확인 불가':'Source unavailable','다시 검색 필요':'Search again',
  '가격이 확인된 판매 페이지를 찾지 못했습니다.':'No merchant page with a verified price was found.',
- '실제 주문·청구·배송은 없습니다. 감사 확정 여부를 별도로 확인하세요.':'No real order, charge, or delivery occurs. Check the audit record separately.',
  '영수증 확인':'View receipt','트랜잭션 확인':'View transaction','고객 조건 승인 확인':'User approval recorded',
  '구매 조건 정리됨':'Purchase conditions prepared','추가 정보 요청':'More information requested','사용자 조건 승인 확인':'User conditions approved',
  '모의 견적 준비됨':'Simulated quote prepared','모의 주문 기록 생성됨 · 온체인 상태는 기록에서 확인':'Simulated order recorded · check chain status in History',
@@ -123,7 +131,9 @@ function translated(value:string){
   .replace(/^진행 중단 · /,'Stopped · ')
   .replace(/^(\d+)개$/,'$1 items')
   .replace(/^(\d+)건$/,'$1 checks')
-  .replace(/판매 페이지 가격 ([\d,]+|확인 불가) ([A-Z]*) · 배송비 ([\d,]+|확인 불가) ([A-Z]*)/g,'Observed price $1 $2 · shipping $3 $4');
+  .replace(/판매 페이지 가격 ([\d,]+|확인 불가) ([A-Z]*) · 배송비 ([\d,]+|확인 불가) ([A-Z]*)/g,'Observed price $1 $2 · shipping $3 $4')
+  .replace(/^판매 페이지 관측 가격 · Policy v(\d+) · 주문만 시뮬레이션$/,'Merchant page price · Policy v$1 · simulated order only')
+  .replace(/^출처 (https?:\/\/\S+)$/,'Source $1');
  return result===body?value:match[1]+result+match[3];
 }
 
@@ -132,7 +142,7 @@ export function translateUi(root:Element){
  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
  while(walker.nextNode()){
   const node=walker.currentNode;
-  if(node.parentElement?.closest('script,style,textarea,[data-no-translate],.hash,.source'))continue;
+  if(node.parentElement?.closest('script,style,textarea,[data-no-translate],.hash'))continue;
   node.textContent=translated(node.textContent??'');
  }
  for(const el of Array.from(root.querySelectorAll<HTMLElement>('[placeholder],[aria-label],[title]'))){
