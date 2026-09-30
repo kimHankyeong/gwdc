@@ -79,6 +79,7 @@ const en:Record<string,string>={
  '변경 내용과 새 버전 발행에 동의합니다.':'I agree to publish a new policy version.',
  '편집 취소':'Cancel editing','구매 정책이 없습니다':'No purchase policy',
  '나에게 맞는 구매 흐름':'A purchase flow for you','필요한 물건을,':'Find what you need,','안심하고 찾아보세요.':'with confidence.',
+ '예산과 조건을 정하고, 후보를 확인한 뒤 모의 주문까지 한곳에서 진행해요.':'Set a budget, review candidates, and complete a simulated order in one place.',
  '구매 시작하기':'Start purchasing','기준 설정':'Set rules','상품 확인':'Review products',
  '예산과 구매 조건을 정해요.':'Set a budget and purchase rules.','가격 근거와 후보를 살펴봐요.':'Review candidate products and price evidence.',
  '최종 내용을 확인하고 기록해요.':'Review and record the final result.',

@@ -42,7 +42,13 @@ export class Agent {
     requireThat(slot,'LLM_BUSY',429);
    }
    let initial=await this.flow.run(owner,runId);requireThat(initial.active,"RUN_CLOSED");
-   requireThat(['READY','CONSTRAINTS_DRAFT','ACTION_REQUIRED'].includes(initial.state),'INVALID_STAGE');
+   const approvedIntent=initial.intents.find((intent:any)=>intent.state==='READY_FOR_TOOL');
+   requireThat(['READY','CONSTRAINTS_DRAFT','ACTION_REQUIRED'].includes(initial.state)||!!approvedIntent,'INVALID_STAGE');
+   if(approvedIntent){
+    if(initial.state!=='READY')await this.flow.db.pool.query("UPDATE agent_runs SET state='READY',question=NULL,version=version+1 WHERE id=$1 AND owner_id=$2 AND active",[runId,owner]);
+    await this.dispatch(owner,runId,'execute_purchase',{intentId:approvedIntent.id});
+    return this.flow.run(owner,runId);
+   }
     const hasFreshQuote=(run:any)=>run.candidates.some((row:any)=>{
     const candidate=row.data??row, fields=candidate.fields??{}, fetchedAt=Date.parse(candidate.fetchedAt);
     return candidate.evidenceType==="HTML_OBSERVATION"&&fields.observedPrice!=null&&fields.currency&&
