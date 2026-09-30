@@ -6,6 +6,11 @@ document.documentElement.lang=language;
 const en:Record<string,string>={
  '구매':'Purchase','정책':'Policy','기록':'History','설정':'Settings','주문 기록':'Order history','주 메뉴':'Main menu',
  '로그인':'Sign in','로그아웃':'Sign out','회원가입':'Sign up','처음이신가요?':'New here?',
+ '앱 설치':'Install app','앱으로 사용하기':'Use as an app','닫기':'Close',
+ '오프라인입니다. 연결 후 다시 시도하세요.':'You are offline. Reconnect and try again.',
+ '안드로이드 Chrome: 메뉴 → 앱 설치':'Android Chrome: Menu → Install app',
+ '윈도우 Edge: 메뉴 → 앱 → 이 사이트를 앱으로 설치':'Windows Edge: Menu → Apps → Install this site as an app',
+ '설치 메뉴가 없으면 브라우저에서 그대로 사용할 수 있습니다. 구매 기능은 인터넷 연결이 필요합니다.':'If installation is unavailable, continue in your browser. Purchasing requires internet access.',
  '모의 주문':'Simulated order','모의 잔고':'Simulated balance','예약 중':'Reserved','거래 한도':'Transaction limit',
  '실제 결제 없는':'No real payments','구매 시뮬레이션':'Purchase simulation',
  '예산과 조건에 맞는 상품을 찾아보세요.':'Find products that fit your budget and conditions.',

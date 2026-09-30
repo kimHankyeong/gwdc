@@ -49,6 +49,14 @@ export class Agent {
     await this.dispatch(owner,runId,'execute_purchase',{intentId:approvedIntent.id});
     return this.flow.run(owner,runId);
    }
+   if(initial.track==='HardInput'&&!initial.constraints){
+    requireThat(initial.input.maxTotal&&initial.input.quantity,'HARD_INPUT_REQUIRED');
+    await this.dispatch(owner,runId,'propose_purchase_constraints',{baseVersion:initial.constraint_version,constraints:{
+     query:initial.input.query,maxTotal:initial.input.maxTotal,quantity:initial.input.quantity,
+     ...(initial.input.requiredName?{requiredName:initial.input.requiredName}:{}),excludedBrands:[]
+    }});
+    initial=await this.flow.run(owner,runId);
+   }
     const hasFreshQuote=(run:any)=>run.candidates.some((row:any)=>{
     const candidate=row.data??row, fields=candidate.fields??{}, fetchedAt=Date.parse(candidate.fetchedAt);
     return candidate.evidenceType==="HTML_OBSERVATION"&&fields.observedPrice!=null&&fields.currency&&
