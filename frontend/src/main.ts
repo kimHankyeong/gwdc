@@ -6,6 +6,7 @@ import {startTutorial,tutorialOpen} from './tutorial';
 import {authClient} from './auth';
 import {authPage,signupEnabled} from './auth-page';
 import {requestExperience,policySwitch} from './experience';
+import {language,setLanguage,translateUi} from './i18n';
 import '@fontsource/ibm-plex-mono/latin-400.css';
 import '@fontsource/ibm-plex-sans-kr/400.css';
 import '@fontsource/ibm-plex-sans-kr/600.css';
@@ -31,9 +32,9 @@ const name=(s:string)=>stateNames[s]??s;
 const value=(id:string)=>(document.getElementById(id) as HTMLInputElement)?.value??'';
 const check=(id:string)=>(document.getElementById(id) as HTMLInputElement)?.checked??false;
 const dis=(v:any)=>v?' disabled':'';
-const date=(v:any)=>v?new Date(v).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}):'—';
+const date=(v:any)=>v?new Date(v).toLocaleString(language==='en'?'en-US':'ko-KR',{timeZone:'Asia/Seoul'}):'—';
 function money(v:any,c=policy?.policy.currency??'KRW',d=policy?.policy.minorDigits??0){
- if(v==null)return '확인 필요';try{const n=BigInt(v),b=10n**BigInt(d);return (n/b).toLocaleString('ko-KR')+(d?'.'+String(n%b).padStart(d,'0'):'')+' '+c;}catch{return '확인 필요';}
+ if(v==null)return language==='en'?'Unknown':'확인 필요';try{const n=BigInt(v),b=10n**BigInt(d);return (n/b).toLocaleString(language==='en'?'en-US':'ko-KR')+(d?'.'+String(n%b).padStart(d,'0'):'')+' '+c;}catch{return language==='en'?'Unknown':'확인 필요';}
 }
 const badge=(s:string,k='neutral')=>`<span class="badge ${k}">${e(s)}</span>`;
 const field=(id:string,title:string,v:any='',type='text',extra='')=>`<label class="field" for="${id}"><span>${title}</span><input id="${id}" type="${type}" value="${e(v)}" ${extra}></label>`;
@@ -80,7 +81,7 @@ function historyPage(){if(!recent.length&&!history.length&&!receipt)return empty
 function activityPanel(){return `<details open><summary>AI 작업 요약${agentWorking?' · 진행 중':''}</summary><ul>${activitySteps(run,agentWorking).map(step=>`<li>${e(step)}</li>`).join('')}</ul></details>`;}
 async function resumeAgent(){
  const runId=run.id;agentWorking=true;let polling=false,finished=false;
- const draw=()=>{const target=document.getElementById('agent-activity');if(target){target.innerHTML=activityPanel();target.classList.toggle('working',agentWorking);}};draw();
+ const draw=()=>{const target=document.getElementById('agent-activity');if(target){target.innerHTML=activityPanel();translateUi(target);target.classList.toggle('working',agentWorking);}};draw();
  const timer=setInterval(async()=>{if(polling||document.hidden)return;polling=true;try{const latest=await api('/agent/runs/'+runId);if(!finished&&run?.id===runId){run=latest;draw();}}catch{}finally{polling=false;}},4000);
  try{await api('/agent/runs/'+runId+'/resume','POST',{});}finally{finished=true;clearInterval(timer);agentWorking=false;draw();}
  await refresh();
@@ -91,19 +92,26 @@ function render(){
  const view=!connected&&['/login','/signup'].includes(location.pathname)?location.pathname:page;
  if(renderedView&&renderedView!==view)queueMicrotask(()=>{const title=app.querySelector('h1');if(title){title.tabIndex=-1;title.focus();}});
  renderedView=view;
- document.title=view==='/login'?'로그인 · 구매':view==='/signup'?'회원가입 · 구매':view==='policy'?'정책 · 구매':view==='history'?'주문 기록 · 구매':view==='settings'?'설정 · 구매':'구매';
+ document.title=language==='en'?(view==='/login'?'Sign in · Purchase':view==='/signup'?'Sign up · Purchase':view==='policy'?'Policy · Purchase':view==='history'?'Order history · Purchase':view==='settings'?'Settings · Purchase':'Purchase'):(view==='/login'?'로그인 · 구매':view==='/signup'?'회원가입 · 구매':view==='policy'?'정책 · 구매':view==='history'?'주문 기록 · 구매':view==='settings'?'설정 · 구매':'구매');
  mountAppControls();
- if(['/login','/signup'].includes(location.pathname)&&!connected){app.innerHTML=authPage(location.pathname==='/signup',notice,isError);bind();return;}
+ if(['/login','/signup'].includes(location.pathname)&&!connected){app.innerHTML=authPage(location.pathname==='/signup',notice,isError);translateUi(app);bind();return;}
  if(connected&&['/login','/signup'].includes(location.pathname))window.history.replaceState(null,'','/');
- app.innerHTML=`<div class="app-shell"><aside class="sidebar"><a class="app-brand" href="/" data-auth-route="/">${icon('bag',25)}<span>구매</span></a><nav aria-label="주 메뉴">${[['purchase','구매'],['policy','정책'],['history','기록'],['settings','설정']].map(([id,t])=>`<button data-page="${id}" class="nav-item ${page===id?'active':''}" aria-current="${page===id?'page':'false'}">${icon(id==='purchase'?'home':id==='policy'?'policy':id==='settings'?'settings':'history',23)}<span>${t}</span></button>`).join('')}</nav><p class="sidebar-note">실제 결제 없는<br>구매 시뮬레이션</p></aside><div class="workspace"><header class="topbar"><div class="page-heading"><h1>${page==='purchase'?'구매':page==='policy'?'정책':page==='settings'?'설정':'주문 기록'}</h1><p class="page-context">${page==='purchase'?'예산과 조건에 맞는 상품을 찾아보세요.':page==='policy'?'구매 한도와 허용 조건을 확인하세요.':page==='history'?'모의 주문과 영수증을 확인하세요.':'블록체인 감사 상태를 확인하세요.'}</p></div><div class="top-actions">${badge('모의 주문','amber')}<button id="${connected?'disconnect':'connection-toggle'}" class="connection-button">${icon('user',18)}${connected?'로그아웃':'로그인'}</button></div></header>${notice?`<div role="${isError?'alert':'status'}" class="notification ${isError?'error':''}">${e(notice)}</div>`:''}
+ app.innerHTML=`<div class="app-shell"><aside class="sidebar"><a class="app-brand" href="/" data-auth-route="/">${icon('bag',25)}<span>구매</span></a><nav aria-label="주 메뉴">${[['purchase','구매'],['policy','정책'],['history','기록'],['settings','설정']].map(([id,t])=>`<button data-page="${id}" class="nav-item ${page===id?'active':''}" aria-current="${page===id?'page':'false'}">${icon(id==='purchase'?'home':id==='policy'?'policy':id==='settings'?'settings':'history',23)}<span>${t}</span></button>`).join('')}</nav><p class="sidebar-note">실제 결제 없는<br>구매 시뮬레이션</p></aside><div class="workspace"><header class="topbar"><div class="page-heading"><h1>${page==='purchase'?'구매':page==='policy'?'정책':page==='settings'?'설정':'주문 기록'}</h1><p class="page-context">${page==='purchase'?'예산과 조건에 맞는 상품을 찾아보세요.':page==='policy'?'구매 한도와 허용 조건을 확인하세요.':page==='history'?'모의 주문과 영수증을 확인하세요.':'블록체인 감사 상태를 확인하세요.'}</p></div><div class="top-actions"><button id="language-toggle" class="connection-button" type="button" aria-label="${language==='ko'?'Switch to English':'한국어로 전환'}">${language==='ko'?'EN':'한국어'}</button>${badge('모의 주문','amber')}<button id="${connected?'disconnect':'connection-toggle'}" class="connection-button">${icon('user',18)}${connected?'로그아웃':'로그인'}</button></div></header>${notice?`<div role="${isError?'alert':'status'}" class="notification ${isError?'error':''}">${e(notice)}</div>`:''}
 
  ${connected&&scopes.length>1?`<div class="scope-bar"><label for="scope">정책</label><select id="scope"${dis(run?.active||edit)}>${scopes.map(s=>`<option value="${e(s.id)}"${s.id===scope?' selected':''}>${e(s.id)}</option>`).join('')}</select></div>`:''}
- <div class="help-row"><button id="tutorial-launch" class="tutorial-launch" type="button">처음이신가요?</button></div><main>${page==='purchase'&&!connected?guestHome():page==='purchase'?`${policy?`<section class="balance-card surface"><div><span class="overline">모의 잔고</span><strong class="balance-amount">${money(policy.balance?.balance)}</strong></div><span class="icon-tile blue">${icon('wallet',28)}</span><dl><div><dt>예약 중</dt><dd>${money(policy.balance?.reserved)}</dd></div><div><dt>거래 한도</dt><dd>${money(policy.policy.maxPerTransaction)}</dd></div></dl></section>`:''}<div class="content-grid"><div>${run?.active?'':policy?requestForm():`<section class="surface"><h2>구매 정책이 없습니다</h2><button id="go-policy" class="primary">정책 추가하기</button></section>`}${runPanel()}</div><aside class="policy-rail surface ${policyExpanded?'expanded':''}"><button id="policy-expand" class="policy-expand" aria-expanded="${policyExpanded}">정책 · 읽기 전용 <span>${policyExpanded?'−':'+'}</span></button><div class="policy-content">${policySummary()}</div></aside></div>`:page==='policy'?policyPage():page==='settings'?settingsPage():historyPage()}</main></div></div>`;bind();}
+ <div class="help-row"><button id="tutorial-launch" class="tutorial-launch" type="button">처음이신가요?</button></div><main>${page==='purchase'&&!connected?guestHome():page==='purchase'?`${policy?`<section class="balance-card surface"><div><span class="overline">모의 잔고</span><strong class="balance-amount">${money(policy.balance?.balance)}</strong></div><span class="icon-tile blue">${icon('wallet',28)}</span><dl><div><dt>예약 중</dt><dd>${money(policy.balance?.reserved)}</dd></div><div><dt>거래 한도</dt><dd>${money(policy.policy.maxPerTransaction)}</dd></div></dl></section>`:''}<div class="content-grid"><div>${run?.active?'':policy?requestForm():`<section class="surface"><h2>구매 정책이 없습니다</h2><button id="go-policy" class="primary">정책 추가하기</button></section>`}${runPanel()}</div><aside class="policy-rail surface ${policyExpanded?'expanded':''}"><button id="policy-expand" class="policy-expand" aria-expanded="${policyExpanded}">정책 · 읽기 전용 <span>${policyExpanded?'−':'+'}</span></button><div class="policy-content">${policySummary()}</div></aside></div>`:page==='policy'?policyPage():page==='settings'?settingsPage():historyPage()}</main></div></div>`;translateUi(app);bind();}
 function on(id:string,fn:()=>Promise<void>){document.getElementById(id)?.addEventListener('click',()=>void action(fn));}
 function form(id:string,fn:()=>Promise<void>){document.getElementById(id)?.addEventListener('submit',ev=>{ev.preventDefault();void action(fn);});}
 function canonical(v:any):string{return Array.isArray(v)?'['+v.map(canonical).join(',')+']':v&&typeof v==='object'?'{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+canonical(v[k])).join(',')+'}':JSON.stringify(v);}
 async function answer(payload:any){await api('/agent/runs/'+run.id+'/events','POST',{eventId:crypto.randomUUID(),expectedVersion:run.version,type:'ANSWER',payload});await refresh();}
 function bind(){
+ document.getElementById('language-toggle')?.addEventListener('click',()=>{
+  const values=Array.from(app.querySelectorAll<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>('input[id],textarea[id],select[id]')).map(node=>({id:node.id,value:node.value,checked:node instanceof HTMLInputElement?node.checked:false}));
+  const track=document.querySelector<HTMLInputElement>('input[name="track"]:checked')?.value;
+  setLanguage(language==='ko'?'en':'ko');render();
+  for(const entry of values){const node=document.getElementById(entry.id) as HTMLInputElement|null;if(node){node.value=entry.value;if(node.type==='checkbox')node.checked=entry.checked;}}
+  if(track){const radio=document.querySelector<HTMLInputElement>(`input[name="track"][value="${track}"]`);if(radio){radio.checked=true;radio.dispatchEvent(new Event('change'));}}
+ });
  const conditionDialog=document.getElementById('conditions-dialog') as HTMLDialogElement|null;
  document.getElementById('open-conditions')?.addEventListener('click',()=>conditionDialog?.showModal());
  for(const id of ['close-conditions','apply-conditions'])document.getElementById(id)?.addEventListener('click',()=>conditionDialog?.close());
@@ -116,6 +124,7 @@ function bind(){
   if(!fixed){const auto=document.getElementById('auto-purchase') as HTMLInputElement|null;if(auto)auto.checked=false;}
   const explanation=document.getElementById('track-explanation');if(explanation)explanation.textContent=fixed?'금액과 수량을 먼저 입력합니다. 에이전트는 값을 바꾸지 않고 후보를 판정합니다.':'모르는 조건은 에이전트가 질문합니다. 제안된 조건과 정책 예시를 검토하고 승인하세요.';
   const lead=document.getElementById('condition-lead');if(lead)lead.textContent=fixed?'최대 금액과 수량은 필수입니다. 입력값과 다른 조건은 승인할 수 없습니다.':'함께 계획은 비워 둔 조건을 대화로 정할 수 있습니다.';
+  if(explanation)translateUi(explanation);if(lead)translateUi(lead);
  };
  document.querySelectorAll<HTMLInputElement>('input[name="track"]').forEach(input=>input.addEventListener('change',updateTrack));updateTrack();
  document.getElementById('guide-toggle')?.addEventListener('change',()=>{const wrap=document.getElementById('guide-wrap');if(wrap)wrap.hidden=!check('guide-toggle');});

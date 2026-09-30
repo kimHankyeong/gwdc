@@ -1,6 +1,7 @@
 .auth-page { display: flex; width: min(100% - 32px, 460px); min-height: 100dvh; flex-direction: column; justify-content: center; gap: 18px; margin: 0 auto; padding: 28px 0; }
 .auth-back { display: inline-flex; width: fit-content; min-height: 44px; align-items: center; gap: 7px; color: var(--fg-2); font-size: .84rem; }
 .auth-back:hover, .auth-switch a:hover { color: var(--accent-1); text-decoration: underline; text-underline-offset: 3px; }
+.auth-language { align-self: flex-end; min-height: 36px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--paper); color: var(--fg-1); font-weight: 600; }
 .auth-card { padding: clamp(24px, 5vw, 36px); border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--paper); box-shadow: var(--shadow-elevation-1); }
 .auth-icon { margin-bottom: 18px; }
 .auth-eyebrow { margin: 0 0 6px; color: var(--fg-2); font-size: .8rem; }
