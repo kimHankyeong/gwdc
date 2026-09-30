@@ -134,6 +134,8 @@ PostgreSQL 통합 검사는 npm 패키지의 별도 테스트 클러스터를 lo
 - 기본 Kiln 모델은 `qwen3-32b` 예시 설정입니다. 검색 제공자는 DDGS에서 지원하는 DuckDuckGo, Brave, Google, Mojeek, Startpage, Yahoo를 병렬 조회해 중복 제거 후 최대 10건을 합칩니다. 한쪽 엔진 장애가 있으면 부분 결과로 표시하고 빠르게 재조회합니다.
 - SearXNG도 검토했으나 현재 Docker 엔진이 동작하지 않아 Python에서 실행 가능한 DDGS를 선택했습니다.
 
+로컬 시연은 `.env`에 `SEARCH_AGENT_MODE=local`을 설정합니다. 검색 단계에서만 간결한 LangChain 지시문을 쓰며, Kiln 모델 호출과 승인 판매처 검색·서버 측 상품 검증은 그대로 수행합니다.
+
 ```powershell
 python -m venv .venv-search
 .\.venv-search\Scripts\python.exe -m pip install -r search_service/requirements-lock.txt

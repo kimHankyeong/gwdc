@@ -23,11 +23,13 @@ const pg=new EmbeddedPostgres({databaseDir:path.join(dir,"db"),user:"postgres",p
 await pg.initialise();await pg.start();await pg.createDatabase("uitest");
 const db=new Database("postgresql://postgres:"+password+"@127.0.0.1:55440/uitest");
 await db.pool.query(await readFile(path.join(root,"backend/src/db/001_initial.sql"),"utf8"));
-const p={currency:"KRW",minorDigits:0,maxBudget:"100000",maxPerTransaction:"10000",minimumRemaining:"0",validUntil:"2099-01-01T00:00:00Z",allowedMerchants:[],blockedMerchants:[],blockedBrands:[],minimumReviewScore:null,preferLowerPrice:true,preferHigherReviewScore:false};
+const maxBudget=process.env.BROWSER_DEMO_MAX_BUDGET??"100000",maxPerTransaction=process.env.BROWSER_DEMO_MAX_PER_TRANSACTION??"10000";
+const balance=process.env.BROWSER_DEMO_BALANCE??"100000";
+const p={currency:"KRW",minorDigits:0,maxBudget,maxPerTransaction,minimumRemaining:"0",validUntil:"2099-01-01T00:00:00Z",allowedMerchants:[],blockedMerchants:[],blockedBrands:[],minimumReviewScore:null,preferLowerPrice:true,preferHigherReviewScore:false};
 const bundles=path.join(dir,"policies");await mkdir(path.join(bundles,"verification","1"),{recursive:true});await writeFile(path.join(bundles,"verification","1","policy.json"),canonical(p));
 await db.pool.query("INSERT INTO policy_scopes(id,owner_id,active_version) VALUES('verification','browser-test',1)");
 await db.pool.query("INSERT INTO policy_versions(scope_id,version,digest,policy) VALUES('verification',1,$1,$2)",[digest(p),p]);
-await db.pool.query("INSERT INTO balances(owner_id,scope_id,currency,balance) VALUES('browser-test','verification','KRW',100000)");
+await db.pool.query("INSERT INTO balances(owner_id,scope_id,currency,balance) VALUES('browser-test','verification','KRW',$1)",[balance]);
 const token=randomBytes(32).toString("base64url");
 await writeFile(path.join(base,"ui-session.json"),JSON.stringify({token}),{mode:0o600});
 const env={...process.env,AUTH_TOKEN_HASHES:JSON.stringify({"browser-test":createHash("sha256").update(token).digest("hex")})};
